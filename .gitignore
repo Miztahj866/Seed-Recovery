@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Rust
+gui/src-tauri/target/
+Cargo.lock.bak
+
+# Node
+gui/node_modules/
+gui/dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts / release binaries (published separately, not committed)
+release/
+*.dmg
+*.msi
+*.AppImage
