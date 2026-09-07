@@ -30,7 +30,14 @@ derivation all match the published reference values exactly. See
 [`docs/SECURITY.md`](docs/SECURITY.md) for what has and hasn't been independently
 audited yet.
 
-No GUI yet — command-line only for now (see `src/recover.py`).
+Two interfaces exist:
+- **CLI** (`src/recover.py`, Python) — the original, fully tested implementation.
+- **Desktop GUI** (`gui/`, Tauri + Rust) — a from-scratch Rust port of the same
+  BIP39 logic, with its own copy of the official test vectors in
+  `gui/src-tauri/src/bip39.rs`. **This has not yet been compiled or run** — it
+  was written in an environment without a Rust toolchain available. Anyone
+  building it must run `cargo test` inside `gui/src-tauri` first and confirm
+  all tests pass before trusting it with a real phrase. See `gui/BUILD.md`.
 
 ## How to verify this is trustworthy, yourself
 
@@ -70,11 +77,26 @@ seed-recovery-tool/
 │   ├── bip39.py      # Core BIP39 logic — checksum, entropy<->mnemonic, seed derivation
 │   └── recover.py    # CLI: typo fix, missing-word brute force, reorder search
 ├── tests/
-│   └── test_vectors.py   # Official Trezor/BIP39 reference test vectors
+│   └── test_vectors.py   # Official Trezor/BIP39 reference test vectors (Python)
 ├── wordlists/
 │   └── english.txt   # Official BIP39 English wordlist (2048 words)
-└── docs/
-    └── SECURITY.md    # Responsible disclosure + audit status
+├── docs/
+│   └── SECURITY.md    # Responsible disclosure + audit status
+└── gui/               # Desktop GUI (Tauri + Rust) — see gui/BUILD.md
+    ├── BUILD.md        # Reproducible build process, not yet executed/verified
+    ├── package.json
+    ├── src/            # Plain HTML/CSS/JS frontend, no framework, no network calls
+    │   ├── index.html
+    │   ├── style.css
+    │   └── main.js
+    └── src-tauri/
+        ├── Cargo.toml
+        ├── tauri.conf.json   # Locked-down allowlist — no fs/shell/http APIs enabled
+        ├── build.rs
+        ├── wordlists/english.txt
+        └── src/
+            ├── bip39.rs      # Rust port of src/bip39.py, with its own official test vectors
+            └── main.rs       # Tauri commands exposed to the frontend
 ```
 
 ## License
