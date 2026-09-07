@@ -1,0 +1,40 @@
+{
+  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/tooling/cli/schema.json",
+  "build": {
+    "beforeDevCommand": "",
+    "beforeBuildCommand": "",
+    "devPath": "../src",
+    "distDir": "../src",
+    "withGlobalTauri": true
+  },
+  "package": {
+    "productName": "Seed Recovery Tool",
+    "version": "0.1.0"
+  },
+  "tauri": {
+    "allowlist": {
+      "all": false
+    },
+    "bundle": {
+      "active": true,
+      "targets": "all",
+      "identifier": "com.seedrecoverytool.app",
+      "icon": [],
+      "resources": [],
+      "shortDescription": "Local, offline BIP39 seed phrase recovery",
+      "longDescription": "A local, offline, open-source tool for recovering partial or misremembered BIP39 seed phrases. Never transmits any phrase data over the network."
+    },
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'none'; img-src 'self'"
+    },
+    "windows": [
+      {
+        "title": "Seed Recovery Tool",
+        "width": 720,
+        "height": 640,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ]
+  }
+}
