@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Seed Recovery Tool</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>Seed Recovery Tool</h1>
+    <p class="tagline">Runs entirely on this device. Nothing you type here is ever sent anywhere.</p>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="fix">Fix Typos</button>
+    <button class="tab-btn" data-tab="missing">Missing Word(s)</button>
+    <button class="tab-btn" data-tab="reorder">Word Order</button>
+  </nav>
+
+  <main>
+    <section id="tab-fix" class="tab-panel active">
+      <p>Enter your phrase. Any word not in the BIP39 wordlist will get suggested corrections.</p>
+      <textarea id="fix-input" rows="3" placeholder="e.g. abandan abandon abandon ... about"></textarea>
+      <button id="fix-run">Check phrase</button>
+      <div id="fix-output" class="output"></div>
+    </section>
+
+    <section id="tab-missing" class="tab-panel">
+      <p>Mark each unknown word with <code>?</code>. Up to 3 unknowns is practical; more will be slow.</p>
+      <textarea id="missing-input" rows="3" placeholder="e.g. abandon abandon ... ? ... about"></textarea>
+      <button id="missing-run">Search</button>
+      <div id="missing-output" class="output"></div>
+    </section>
+
+    <section id="tab-reorder" class="tab-panel">
+      <p>Enter the words you know, in any order. Practical only for a small unordered set.</p>
+      <textarea id="reorder-input" rows="3" placeholder="e.g. about abandon abandon ..."></textarea>
+      <button id="reorder-run">Search orderings</button>
+      <div id="reorder-output" class="output"></div>
+    </section>
+  </main>
+
+  <footer>
+    <p>
+      A passing checksum means a phrase is <strong>valid BIP39</strong>, not that it is
+      <strong>your</strong> phrase. Always verify against a known wallet address before
+      trusting a recovered phrase with funds.
+    </p>
+  </footer>
+
+  <script src="main.js"></script>
+</body>
+</html>
