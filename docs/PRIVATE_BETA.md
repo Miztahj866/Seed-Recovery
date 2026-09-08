@@ -10,9 +10,9 @@ binary gets distributed.
   the official Trezor/BIP39 reference vectors)
 - [x] GUI runs via `npm run dev` and all three modes (fix/missing/reorder)
   produce correct results against known test vectors
-- [ ] Try the GUI on a second machine/OS if you have access to one — you've
-  only confirmed Windows so far; a Mac or Linux run (even just `cargo test`
-  there) would catch any Windows-specific assumptions early
+- [ ] Push to a private GitHub repo and confirm `.github/workflows/test.yml`
+  passes on all three OSes (Linux/macOS/Windows) — this replaces needing
+  physical access to a Mac or Linux machine yourself
 - [ ] Re-read `docs/SECURITY.md` and confirm it's still accurate (no network
   calls added anywhere, no telemetry, allowlist still locked down)
 - [ ] Decide what you'll say if a beta tester finds a real bug — respond fast

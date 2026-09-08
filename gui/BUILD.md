@@ -83,14 +83,19 @@ For every tagged release:
 
 ## What's deliberately NOT done yet, and why
 
-- **No CI pipeline configured yet.** Setting up GitHub Actions (or equivalent)
-  to do the actual reproducible build is the next concrete step once this repo
-  goes public — CI output is more trustworthy than a build from a single
-  maintainer's laptop, since the environment is itself auditable.
+- **CI is set up** (`.github/workflows/test.yml`) — runs the Python test
+  vectors, the Rust test vectors, and frontend syntax checks across Linux,
+  macOS, and Windows on every push, once this repo has a GitHub remote.
+  This is what actually answers "does this work cross-platform" — more
+  reliably than any single contributor's machine, since the exact OS image
+  and toolchain versions GitHub uses are documented and reproducible by
+  anyone.
 - **No code signing certificates yet.** Windows Authenticode and macOS
   Developer ID signing require paid certificates; per the project roadmap,
-  this comes after there's a working, tested build — not before.
+  this comes after there's a working, tested build — not before. See
+  `docs/CODE_SIGNING.md`.
 - **No published binaries yet at all.** Nothing should be distributed as a
-  binary until: (a) `cargo test` passes locally for a real human, (b) the repo
-  is public and has had at least some outside eyes on it, per the roadmap's
-  "community scrutiny before public binaries" ordering.
+  binary until: (a) `cargo test` passes locally for a real human (done — see
+  `docs/PRIVATE_BETA.md`), (b) CI is green across all three OSes, (c) the
+  repo is public and has had at least some outside eyes on it, per the
+  roadmap's "community scrutiny before public binaries" ordering.
