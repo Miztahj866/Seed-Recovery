@@ -19,7 +19,13 @@
       "active": true,
       "targets": "all",
       "identifier": "com.seedrecoverytool.app",
-      "icon": [],
+      "icon": [
+        "icons/32x32.png",
+        "icons/128x128.png",
+        "icons/128x128@2x.png",
+        "icons/icon.icns",
+        "icons/icon.ico"
+      ],
       "resources": [],
       "shortDescription": "Local, offline BIP39 seed phrase recovery",
       "longDescription": "A local, offline, open-source tool for recovering partial or misremembered BIP39 seed phrases. Never transmits any phrase data over the network."
