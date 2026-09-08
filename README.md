@@ -101,8 +101,12 @@ seed-recovery-tool/
 
 ## License
 
-Not yet decided — will be a permissive open-source license (MIT or similar) before
-any public release, so the code can be freely audited and reused.
+MIT License — see [`LICENSE`](LICENSE). Permissive by design: anyone can read,
+run, fork, and build on this code, which is the whole point given how much
+this project's trustworthiness depends on being open to scrutiny.
+
+**Note:** the copyright holder name in `LICENSE` is currently a placeholder —
+update it to your actual name (or entity) before any public release.
 
 ## This is not financial or legal advice
 
