@@ -12,6 +12,7 @@ use hmac::Hmac;
 use pbkdf2::pbkdf2;
 use sha2::{Digest, Sha256, Sha512};
 use unicode_normalization::UnicodeNormalization;
+use zeroize::Zeroizing;
 
 /// The official BIP39 English wordlist, embedded at compile time.
 /// Embedding (rather than reading from disk at runtime) means the wordlist
@@ -27,6 +28,15 @@ pub fn wordlist() -> Vec<&'static str> {
         words.len()
     );
     words
+}
+
+/// Trim surrounding whitespace and lowercase a word before comparing it
+/// against the wordlist. The official wordlist is already all-lowercase
+/// ASCII, so this makes lookup robust to accidental capitalization or
+/// stray whitespace from copy-paste without changing the underlying BIP39
+/// semantics at all.
+fn normalize_word(word: &str) -> String {
+    word.trim().to_lowercase()
 }
 
 /// (word_count, entropy_bits, checksum_bits) — valid per the BIP39 spec.
@@ -77,9 +87,16 @@ pub fn entropy_to_mnemonic(entropy: &[u8]) -> Result<Vec<String>, String> {
 }
 
 /// Returns (entropy_bytes, actual_checksum_bits, expected_checksum_bits).
+/// `entropy_bytes` is wrapped in `Zeroizing` since it's key material —
+/// it gets overwritten with zeros in memory as soon as the caller drops it,
+/// rather than lingering on the heap indefinitely.
+///
+/// Word matching is case/whitespace-normalized (see `normalize_word`)
+/// before comparing against the wordlist, so " Abandon" and "abandon"
+/// resolve identically.
 pub fn mnemonic_to_entropy_and_checksum(
     words: &[String],
-) -> Result<(Vec<u8>, String, String), String> {
+) -> Result<(Zeroizing<Vec<u8>>, String, String), String> {
     let n = words.len();
     let (entropy_bits, _checksum_bits) =
         valid_lengths(n).ok_or_else(|| format!("Invalid word count: {}", n))?;
@@ -87,9 +104,10 @@ pub fn mnemonic_to_entropy_and_checksum(
     let wl = wordlist();
     let mut indices = Vec::with_capacity(n);
     for w in words {
+        let normalized = normalize_word(w);
         let idx = wl
             .iter()
-            .position(|&x| x == w)
+            .position(|&x| x == normalized)
             .ok_or_else(|| format!("Word not in BIP39 wordlist: {:?}", w))?;
         indices.push(idx);
     }
@@ -98,7 +116,7 @@ pub fn mnemonic_to_entropy_and_checksum(
     let entropy_bin = &full_bits[..entropy_bits];
     let actual_checksum = &full_bits[entropy_bits..];
 
-    let entropy_bytes = bits_to_bytes(entropy_bin);
+    let entropy_bytes = Zeroizing::new(bits_to_bytes(entropy_bin));
     let expected_checksum = entropy_to_checksum_bits(&entropy_bytes);
 
     Ok((entropy_bytes, actual_checksum.to_string(), expected_checksum))
@@ -124,16 +142,25 @@ pub fn is_valid_mnemonic(words: &[String]) -> bool {
 /// Derive the 64-byte BIP39 seed via PBKDF2-HMAC-SHA512 (2048 iterations),
 /// per spec. Does NOT validate the checksum first — call is_valid_mnemonic()
 /// beforehand if checksum validity matters for your use case.
-pub fn mnemonic_to_seed(words: &[String], passphrase: &str) -> [u8; 64] {
+///
+/// The returned seed is wrapped in `Zeroizing` — this is the actual key
+/// material a wallet would derive addresses from, so it's cleared from
+/// memory as soon as the caller drops it rather than left sitting on the
+/// heap. The intermediate mnemonic/salt strings used to derive it are NOT
+/// currently zeroized (see docs/SECURITY.md for the known limitation this
+/// leaves — `String` in Rust isn't zero-on-drop by default without wrapping
+/// every intermediate value, which hasn't been done throughout this file
+/// yet).
+pub fn mnemonic_to_seed(words: &[String], passphrase: &str) -> Zeroizing<[u8; 64]> {
     let mnemonic_str: String = words.join(" ").nfkd().collect();
     let salt_str: String = format!("mnemonic{}", passphrase).nfkd().collect();
 
-    let mut seed = [0u8; 64];
+    let mut seed = Zeroizing::new([0u8; 64]);
     pbkdf2::<Hmac<Sha512>>(
         mnemonic_str.as_bytes(),
         salt_str.as_bytes(),
         2048,
-        &mut seed,
+        &mut *seed,
     )
     .expect("pbkdf2 with correct output length should never fail");
     seed
@@ -161,9 +188,11 @@ fn levenshtein(a: &str, b: &str) -> usize {
 
 pub fn closest_words(word: &str, max_results: usize) -> Vec<String> {
     let wl = wordlist();
-    let lower = word.to_lowercase();
-    let mut scored: Vec<(&str, usize)> =
-        wl.iter().map(|&w| (w, levenshtein(&lower, w))).collect();
+    let normalized = normalize_word(word);
+    let mut scored: Vec<(&str, usize)> = wl
+        .iter()
+        .map(|&w| (w, levenshtein(&normalized, w)))
+        .collect();
     scored.sort_by_key(|(_, dist)| *dist);
     scored
         .into_iter()
@@ -240,7 +269,7 @@ mod tests {
             let words: Vec<String> = mnemonic.split(' ').map(String::from).collect();
             let (entropy, actual_checksum, expected_checksum) =
                 mnemonic_to_entropy_and_checksum(&words).unwrap();
-            assert_eq!(entropy, hex_to_bytes(entropy_hex));
+            assert_eq!(*entropy, hex_to_bytes(entropy_hex));
             assert_eq!(actual_checksum, expected_checksum);
         }
     }
@@ -283,5 +312,39 @@ mod tests {
     fn closest_words_fixes_simple_typo() {
         let suggestions = closest_words("abandan", 3);
         assert!(suggestions.contains(&"abandon".to_string()));
+    }
+
+    #[test]
+    fn mnemonic_lookup_is_case_and_whitespace_insensitive() {
+        // Same phrase as VECTORS[0], but uppercased and with stray whitespace
+        // on a couple of words. Should resolve identically to the lowercase,
+        // trimmed version -- this is the fix for words not being recognized
+        // when pasted with inconsistent casing.
+        let messy: Vec<String> = vec![
+            " Abandon".to_string(),
+            "ABANDON".to_string(),
+            "abandon".to_string(),
+            "abandon".to_string(),
+            "abandon".to_string(),
+            "abandon".to_string(),
+            "abandon".to_string(),
+            "abandon".to_string(),
+            "abandon".to_string(),
+            "abandon".to_string(),
+            "abandon".to_string(),
+            "About ".to_string(),
+        ];
+        assert!(
+            is_valid_mnemonic(&messy),
+            "messy-cased phrase should still validate"
+        );
+
+        let (entropy, _, _) = mnemonic_to_entropy_and_checksum(&messy).unwrap();
+        let clean_words: Vec<String> = VECTORS[0].1.split(' ').map(String::from).collect();
+        let (clean_entropy, _, _) = mnemonic_to_entropy_and_checksum(&clean_words).unwrap();
+        assert_eq!(
+            *entropy, *clean_entropy,
+            "messy and clean casing should derive identical entropy"
+        );
     }
 }

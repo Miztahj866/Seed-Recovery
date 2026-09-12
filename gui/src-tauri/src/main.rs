@@ -22,8 +22,9 @@ fn fix_typos(words: Vec<String>) -> FixResult {
     let mut suggestions = Vec::new();
 
     for w in &words {
-        if wl.contains(&w.as_str()) {
-            corrected.push(w.clone());
+        let normalized = w.trim().to_lowercase();
+        if wl.contains(&normalized.as_str()) {
+            corrected.push(normalized);
         } else {
             let matches = bip39::closest_words(w, 3);
             corrected.push(matches[0].clone());

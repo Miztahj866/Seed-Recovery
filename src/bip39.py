@@ -68,11 +68,37 @@ def entropy_to_mnemonic(entropy: bytes) -> list[str]:
     return words
 
 
+def normalize_word(word: str) -> str:
+    """
+    Trim surrounding whitespace and lowercase a word before comparing it
+    against the wordlist. The official wordlist is already all-lowercase
+    ASCII, so this makes lookup robust to accidental capitalization or
+    stray whitespace from copy-paste without changing the underlying BIP39
+    semantics at all.
+    """
+    return word.strip().lower()
+
+
 def mnemonic_to_entropy_and_checksum(words: list[str]) -> tuple[bytes, str, str]:
     """
     Convert a mnemonic word list back into (entropy_bytes, actual_checksum_bits,
     expected_checksum_bits). Raises ValueError if any word isn't in the wordlist
     or the word count is invalid.
+
+    Word matching is case/whitespace-normalized (see normalize_word) before
+    comparing against the wordlist, so " Abandon" and "abandon" resolve
+    identically.
+
+    NOTE on memory safety: unlike the Rust implementation (which wraps this
+    function's entropy output in Zeroizing so it's cleared from memory when
+    dropped), Python strings and bytes objects here are NOT zeroized on
+    disposal. CPython's memory model makes reliably zeroing immutable
+    string/bytes data impractical without dropping to a C extension, which
+    this project intentionally has not done, to keep the reference
+    implementation dependency-free and auditable in a few minutes. This is a
+    known, documented limitation — see docs/SECURITY.md. The Rust/Tauri GUI
+    is the safer choice for real, sensitive use once code review is further
+    along.
     """
     n = len(words)
     if n not in VALID_LENGTHS:
@@ -81,7 +107,7 @@ def mnemonic_to_entropy_and_checksum(words: list[str]) -> tuple[bytes, str, str]
     entropy_bits, checksum_bits = VALID_LENGTHS[n]
 
     try:
-        indices = [WORD_TO_INDEX[w] for w in words]
+        indices = [WORD_TO_INDEX[normalize_word(w)] for w in words]
     except KeyError as e:
         raise ValueError(f"Word not in BIP39 wordlist: {e.args[0]!r}") from e
 
@@ -138,5 +164,5 @@ def closest_words(word: str, max_results: int = 3) -> list[str]:
             prev = curr
         return prev[-1]
 
-    scored = sorted(WORDLIST, key=lambda w: levenshtein(word.lower(), w))
+    scored = sorted(WORDLIST, key=lambda w: levenshtein(normalize_word(word), w))
     return scored[:max_results]

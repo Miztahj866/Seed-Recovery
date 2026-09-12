@@ -22,7 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from bip39 import WORDLIST, closest_words, is_valid_mnemonic  # noqa: E402
+from bip39 import WORDLIST, closest_words, is_valid_mnemonic, normalize_word  # noqa: E402
 
 MAX_BLANKS_WARNING = 3
 MAX_REORDER_WARNING = 6  # words with genuinely unknown position
@@ -33,8 +33,9 @@ def cmd_fix(words: list[str]) -> None:
     fixed = []
     changed = False
     for w in words:
-        if w in WORDLIST:
-            fixed.append(w)
+        normalized = normalize_word(w)
+        if normalized in WORDLIST:
+            fixed.append(normalized)
         else:
             suggestions = closest_words(w, max_results=3)
             print(f"  '{w}' not in wordlist. Closest matches: {', '.join(suggestions)}")

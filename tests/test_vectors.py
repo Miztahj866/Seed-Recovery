@@ -130,6 +130,24 @@ def run():
     else:
         print("PASS [corrupted phrase correctly rejected by checksum]")
 
+    # Case/whitespace normalization test: messy input should resolve identically
+    # to the clean version -- this is the fix for words not being recognized
+    # when pasted with inconsistent casing or stray spaces.
+    total += 1
+    clean_words = VECTORS[0][1].split()
+    messy_words = [f" {clean_words[0].upper()}"] + clean_words[1:-1] + [f"{clean_words[-1].title()} "]
+    if not is_valid_mnemonic(messy_words):
+        print("FAIL [messy-cased phrase should still validate]")
+        failures += 1
+    else:
+        messy_entropy, _, _ = mnemonic_to_entropy_and_checksum(messy_words)
+        clean_entropy, _, _ = mnemonic_to_entropy_and_checksum(clean_words)
+        if messy_entropy != clean_entropy:
+            print("FAIL [messy and clean casing produced different entropy]")
+            failures += 1
+        else:
+            print("PASS [case/whitespace-insensitive wordlist lookup]")
+
     print()
     print(f"{total - failures}/{total} checks passed")
     if failures:
