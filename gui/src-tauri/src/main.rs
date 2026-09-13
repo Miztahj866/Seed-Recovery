@@ -2,11 +2,17 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod bip39;
+mod license;
 
 use serde::Serialize;
 
 const MAX_BLANKS_WITHOUT_WARNING: usize = 3;
 const MAX_REORDER_WITHOUT_WARNING: usize = 6;
+// Free tier: 1 missing word works regardless of license (checksum pruning
+// makes this cheap). 2+ requires a valid license key, per the pricing
+// model in docs/LICENSING.md. Word-order search and typo correction stay
+// free at any size -- only multi-word brute force is gated.
+const FREE_TIER_MAX_BLANKS: usize = 1;
 
 #[derive(Serialize)]
 struct FixResult {
@@ -48,8 +54,14 @@ struct SearchResult {
 }
 
 /// words: the phrase with unknown positions marked as "?".
+/// license_key: optional. Required (and must validate) if more than
+/// FREE_TIER_MAX_BLANKS words are missing.
 #[tauri::command]
-fn search_missing(words: Vec<String>, force: bool) -> Result<SearchResult, String> {
+fn search_missing(
+    words: Vec<String>,
+    force: bool,
+    license_key: Option<String>,
+) -> Result<SearchResult, String> {
     let wl = bip39::wordlist();
     let blank_positions: Vec<usize> = words
         .iter()
@@ -61,6 +73,20 @@ fn search_missing(words: Vec<String>, force: bool) -> Result<SearchResult, Strin
 
     if n_blanks == 0 {
         return Err("No '?' slots found — mark each unknown word position with '?'.".into());
+    }
+
+    if n_blanks > FREE_TIER_MAX_BLANKS {
+        let valid = license_key
+            .as_deref()
+            .map(|k| license::validate_license_key(k).is_ok())
+            .unwrap_or(false);
+        if !valid {
+            return Err(format!(
+                "Searching {} missing words requires a paid license (free tier handles {}). \
+                 Enter a valid license key to unlock multi-word search.",
+                n_blanks, FREE_TIER_MAX_BLANKS
+            ));
+        }
     }
 
     let space = 2048u64.pow(n_blanks as u32);
@@ -173,6 +199,32 @@ fn search_reorder(words: Vec<String>, force: bool) -> Result<SearchResult, Strin
     })
 }
 
+#[derive(Serialize)]
+struct LicenseStatus {
+    valid: bool,
+    license_id: Option<String>,
+    error: Option<String>,
+}
+
+/// Checks a license key without running any search. The frontend calls this
+/// when the user enters a key, to show "valid"/"invalid" feedback before
+/// they attempt an actual multi-word search.
+#[tauri::command]
+fn validate_license(license_key: String) -> LicenseStatus {
+    match license::validate_license_key(&license_key) {
+        Ok(info) => LicenseStatus {
+            valid: true,
+            license_id: Some(info.license_id),
+            error: None,
+        },
+        Err(e) => LicenseStatus {
+            valid: false,
+            license_id: None,
+            error: Some(e),
+        },
+    }
+}
+
 #[tauri::command]
 fn validate_mnemonic(words: Vec<String>) -> bool {
     bip39::is_valid_mnemonic(&words)
@@ -194,6 +246,7 @@ fn main() {
             search_missing,
             search_reorder,
             validate_mnemonic,
+            validate_license,
             derive_seed_hex
         ])
         .run(tauri::generate_context!())

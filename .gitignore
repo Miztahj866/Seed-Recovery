@@ -7,6 +7,11 @@ __pycache__/
 gui/src-tauri/target/
 Cargo.lock.bak
 
+# License signing key -- NEVER commit this. It's the private key used to
+# issue paid-tier license keys. See docs/LICENSING.md.
+signing_key.bin
+gui/src-tauri/signing_key.bin
+
 # Node
 gui/node_modules/
 gui/dist/

@@ -65,24 +65,75 @@ document.getElementById("fix-run").addEventListener("click", async () => {
 });
 
 // --- Missing Word(s) ---
+const missingInput = document.getElementById("missing-input");
+const missingLicenseRow = document.getElementById("missing-license-row");
+const missingLicenseKey = document.getElementById("missing-license-key");
+const missingLicenseStatus = document.getElementById("missing-license-status");
+
+const FREE_TIER_MAX_BLANKS = 1;
+
+function countBlanks(words) {
+  return words.filter((w) => w === "?").length;
+}
+
+// Show the license field only once it's actually needed (2+ blanks).
+missingInput.addEventListener("input", () => {
+  const words = splitWords(missingInput.value);
+  missingLicenseRow.style.display = countBlanks(words) > FREE_TIER_MAX_BLANKS ? "flex" : "none";
+});
+
+let licenseCheckTimeout = null;
+missingLicenseKey.addEventListener("input", () => {
+  clearTimeout(licenseCheckTimeout);
+  const key = missingLicenseKey.value.trim();
+  if (!key) {
+    missingLicenseStatus.textContent = "";
+    missingLicenseStatus.className = "license-status";
+    return;
+  }
+  missingLicenseStatus.textContent = "checking...";
+  missingLicenseStatus.className = "license-status";
+  // Debounce so we're not validating on every keystroke.
+  licenseCheckTimeout = setTimeout(async () => {
+    try {
+      const status = await invoke("validate_license", { licenseKey: key });
+      if (status.valid) {
+        missingLicenseStatus.textContent = `✓ valid (${status.license_id})`;
+        missingLicenseStatus.className = "license-status valid";
+      } else {
+        missingLicenseStatus.textContent = "✗ invalid";
+        missingLicenseStatus.className = "license-status invalid";
+      }
+    } catch (e) {
+      missingLicenseStatus.textContent = "✗ invalid";
+      missingLicenseStatus.className = "license-status invalid";
+    }
+  }, 300);
+});
+
 document.getElementById("missing-run").addEventListener("click", async () => {
   const out = document.getElementById("missing-output");
-  const words = splitWords(document.getElementById("missing-input").value);
+  const words = splitWords(missingInput.value);
   if (!words.includes("?")) {
     out.textContent = "Mark at least one unknown word with '?'.";
     return;
   }
+  const licenseKey = missingLicenseKey.value.trim() || null;
   out.textContent = "Searching... this may take a moment.";
   try {
     let result;
     try {
-      result = await invoke("search_missing", { words, force: false });
+      result = await invoke("search_missing", { words, force: false, licenseKey });
     } catch (warnMsg) {
+      if (String(warnMsg).includes("requires a paid license")) {
+        out.innerHTML = `<span class="bad">${warnMsg}</span>`;
+        return;
+      }
       if (!confirm(`${warnMsg}\n\nContinue anyway?`)) {
         out.textContent = "Cancelled.";
         return;
       }
-      result = await invoke("search_missing", { words, force: true });
+      result = await invoke("search_missing", { words, force: true, licenseKey });
     }
     const lines = [`Checked ${result.checked.toLocaleString()} combinations.`, ""];
     if (result.matches.length > 0) {

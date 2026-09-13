@@ -19,6 +19,9 @@ pbkdf2 = { version = "0.12", default-features = false }
 hmac = "0.12"
 unicode-normalization = "0.1"
 zeroize = { version = "1.7", features = ["derive"] }
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand = "0.8"
+base64 = "0.21"
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]

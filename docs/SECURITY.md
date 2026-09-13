@@ -79,6 +79,30 @@ Use them to see how the tool behaves before trusting it with anything else:
   (valid 12-word phrase — try breaking one word to see it get flagged, or
   blank one out with `?` to see the missing-word search find it again)
 
+## License key system (paid tier)
+
+Multi-word missing-word search (2+ blanks) is gated behind a license key,
+validated via Ed25519 signatures — see `docs/LICENSING.md` for the full
+mechanism and setup walkthrough. Security-relevant points:
+
+- ✅ **No network call for validation.** The app only ever ships a public
+  key; validation is a local signature check.
+- ✅ **Fail-closed default.** Until the real public key is generated and
+  pasted into `src/license.rs`, the placeholder all-zero key rejects every
+  license key — there's no accidental "everything unlocked" state.
+- ✅ **Backend-enforced, not just UI-enforced.** The actual search function
+  re-validates the key itself; the check isn't something a modified
+  frontend alone could bypass.
+- ❌ **Does not and cannot stop binary patching.** Any client-side license
+  check can be defeated by someone willing to modify the compiled binary
+  directly. This is a limitation of every offline license scheme, not
+  specific to this one — documented as a known, accepted tradeoff rather
+  than a solved problem.
+- 🔑 **The private signing key (`signing_key.bin`) must never be committed
+  to this repository.** It's covered in `.gitignore`, but verify this
+  yourself before ever pushing after running `gen_license genkey` — losing
+  control of this file would let anyone forge valid license keys.
+
 ## What to verify yourself before trusting this with a real seed phrase
 
 - Read `src/bip39.py` end to end — it's short by design specifically so this is feasible.

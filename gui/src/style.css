@@ -93,6 +93,32 @@ button:hover { opacity: 0.9; }
 .output .bad { color: var(--bad); }
 .output .warn { color: var(--warn); }
 
+.license-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.license-row input {
+  flex: 1;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid #2a2e3a;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+}
+
+.license-status {
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.license-status.valid { color: var(--good); }
+.license-status.invalid { color: var(--bad); }
+
 footer {
   margin-top: 32px;
   padding-top: 16px;

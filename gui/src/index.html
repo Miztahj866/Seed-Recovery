@@ -26,8 +26,12 @@
     </section>
 
     <section id="tab-missing" class="tab-panel">
-      <p>Mark each unknown word with <code>?</code>. Up to 3 unknowns is practical; more will be slow.</p>
+      <p>Mark each unknown word with <code>?</code>. 1 missing word is always free; 2+ requires a license key.</p>
       <textarea id="missing-input" rows="3" placeholder="e.g. abandon abandon ... ? ... about"></textarea>
+      <div id="missing-license-row" class="license-row" style="display:none;">
+        <input type="text" id="missing-license-key" placeholder="License key (payload.signature)" />
+        <span id="missing-license-status" class="license-status"></span>
+      </div>
       <button id="missing-run">Search</button>
       <div id="missing-output" class="output"></div>
     </section>
