@@ -32,12 +32,12 @@ audited yet.
 
 Two interfaces exist:
 - **CLI** (`src/recover.py`, Python) — the original, fully tested implementation.
-- **Desktop GUI** (`gui/`, Tauri + Rust) — a from-scratch Rust port of the same
-  BIP39 logic, with its own copy of the official test vectors in
-  `gui/src-tauri/src/bip39.rs`. **This has not yet been compiled or run** — it
-  was written in an environment without a Rust toolchain available. Anyone
-  building it must run `cargo test` inside `gui/src-tauri` first and confirm
-  all tests pass before trusting it with a real phrase. See `gui/BUILD.md`.
+- **Desktop GUI** (`gui/`, Tauri + Rust) — a Rust port of the same BIP39 logic,
+  with its own copy of the official test vectors. Compiled, tested, and
+  verified — `cargo test` passes 11/11 locally and in CI on Linux, macOS, and
+  Windows. Includes a free tier (typo fix, 1 missing word, word order) and a
+  paid tier (multi-word search) gated by an Ed25519-signed license key — see
+  `gui/BUILD.md` and `docs/LICENSING.md`.
 
 ## How to verify this is trustworthy, yourself
 
@@ -105,8 +105,6 @@ MIT License — see [`LICENSE`](LICENSE). Permissive by design: anyone can read,
 run, fork, and build on this code, which is the whole point given how much
 this project's trustworthiness depends on being open to scrutiny.
 
-**Note:** the copyright holder name in `LICENSE` is currently a placeholder —
-update it to your actual name (or entity) before any public release.
 
 ## This is not financial or legal advice
 
