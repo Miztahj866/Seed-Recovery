@@ -1,4 +1,7 @@
 # Security Policy
+For the short public disclosure policy and current bug bounty offer
+(a free lifetime paid-tier license key for legitimate security findings),
+see the root [SECURITY.md](../SECURITY.md).
 
 ## Reporting a vulnerability
 
