@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Local, offline BIP39 seed phrase recovery tool"
 edition = "2021"
 rust-version = "1.70"
+default-run = "seed-recovery-tool"
 
 # See docs/BUILD.md for how to produce a reproducible build from this manifest.
 
