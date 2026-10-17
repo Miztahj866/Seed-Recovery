@@ -99,6 +99,37 @@ seed-recovery-tool/
             └── main.rs       # Tauri commands exposed to the frontend
 ```
 
+## Free vs. paid
+
+Everything in this repo is free and open source under the MIT license,
+including the CLI above.
+
+The **desktop app** (`gui/`) has two tiers:
+
+| | Free | Multi-word license |
+|---|---|---|
+| Fix typos | ✅ | ✅ |
+| Find 1 missing word | ✅ | ✅ |
+| Word-order search | ✅ | ✅ |
+| Find 2+ missing words | — | ✅ |
+| Price | $0 | $25 one-time |
+
+**[Get a multi-word license on Gumroad](https://unothatguy.gumroad.com/l/jifhlt)**
+
+The license pays for the search, not a guaranteed result. If too many words
+are missing, no tool can find them; see [What this CANNOT do](#what-this-cannot-do).
+License keys are Ed25519-signed and checked offline; the app never contacts
+a server to validate them (details in [`docs/LICENSING.md`](docs/LICENSING.md)).
+
+### Don't need recovery yet? Avoid needing it.
+
+**[Don't Lose Your Crypto](https://unothatguy.gumroad.com/l/86601)** ($19, PDF)
+is a 13-page plain-English guide to backing up your seed phrase: paper vs.
+metal, where to store it, how to test your backup safely, and how to make
+sure your family can get to your crypto if something happens to you.
+
+Buying either one directly funds work on this tool.
+
 ## License
 
 MIT License — see [`LICENSE`](LICENSE). Permissive by design: anyone can read,
