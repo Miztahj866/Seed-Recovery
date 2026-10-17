@@ -77,6 +77,42 @@ button {
 
 button:hover { opacity: 0.9; }
 
+button:disabled { opacity: 0.5; cursor: default; }
+
+button.secondary {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid #2a2e3a;
+}
+
+[hidden] { display: none !important; }
+
+.actions { display: flex; gap: 8px; align-items: center; }
+
+.progress { margin-top: 14px; }
+
+.progress-track {
+  height: 8px;
+  background: var(--panel);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  transition: width 0.2s linear;
+}
+
+.progress-text {
+  margin-top: 6px;
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
 .output {
   margin-top: 16px;
   padding: 12px;

@@ -3,11 +3,18 @@
 
 mod bip39;
 mod license;
+mod search;
+
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
 const MAX_BLANKS_WITHOUT_WARNING: usize = 3;
-const MAX_REORDER_WITHOUT_WARNING: usize = 6;
+// 12! = 479 million orderings now takes minutes with the multi-core search
+// (see search.rs). 15! = 1.3 trillion would take days, so warn above 12.
+const MAX_REORDER_WITHOUT_WARNING: usize = 12;
 // Free tier: 1 missing word works regardless of license (checksum pruning
 // makes this cheap). 2+ requires a valid license key, per the pricing
 // model in docs/LICENSING.md. Word-order search and typo correction stay
@@ -48,28 +55,121 @@ fn fix_typos(words: Vec<String>) -> FixResult {
 
 #[derive(Serialize)]
 struct SearchResult {
+    /// Candidates actually checked (less than `total` if cancelled).
     checked: u64,
+    /// Size of the whole search space. Sent as a float because it can
+    /// exceed what JavaScript numbers hold exactly; it is only displayed.
+    total: f64,
+    /// How many candidates passed the checksum, including ones not listed.
+    match_count: u64,
+    /// Up to search::DEFAULT_MATCH_CAP matching phrases.
     matches: Vec<Vec<String>>,
+    /// True when `match_count` is larger than the list in `matches`.
+    truncated: bool,
+    cancelled: bool,
     warning: Option<String>,
+    elapsed_ms: u64,
+}
+
+/// Progress update sent to the window as a "search-progress" event.
+#[derive(Clone, Serialize)]
+struct Progress {
+    checked: u64,
+    total: f64,
+}
+
+/// Shared between the running search and the cancel_search command.
+/// Only one search runs at a time.
+#[derive(Default)]
+struct SearchControl {
+    cancel: Arc<AtomicBool>,
+    running: Arc<AtomicBool>,
+}
+
+/// Clears the "running" flag when a search ends, however it ends.
+struct RunningGuard(Arc<AtomicBool>);
+
+impl Drop for RunningGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
+const PROGRESS_INTERVAL: Duration = Duration::from_millis(200);
+
+/// Runs a search on a background thread so the window stays responsive,
+/// forwards throttled progress events, and turns the engine's Outcome
+/// into what the frontend expects.
+async fn run_search<S>(
+    window: tauri::Window,
+    control: &SearchControl,
+    total: f64,
+    warning: Option<String>,
+    job: S,
+) -> Result<SearchResult, String>
+where
+    S: FnOnce(&AtomicBool, &(dyn Fn(u64) + Sync)) -> search::Outcome + Send + 'static,
+{
+    if control.running.swap(true, Ordering::SeqCst) {
+        return Err("A search is already running. Wait for it to finish or press Cancel.".into());
+    }
+    let guard = RunningGuard(control.running.clone());
+    control.cancel.store(false, Ordering::SeqCst);
+    let cancel = control.cancel.clone();
+
+    let task = tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        let started = Instant::now();
+        // The Mutex makes the reporter safe to call from every search
+        // thread at once; try_lock skips an update if another thread is
+        // already sending one.
+        let emitter = Mutex::new((started, window));
+        let report = |checked: u64| {
+            if let Ok(mut e) = emitter.try_lock() {
+                if e.0.elapsed() >= PROGRESS_INTERVAL {
+                    e.0 = Instant::now();
+                    let _ = e.1.emit("search-progress", Progress { checked, total });
+                }
+            }
+        };
+        let report: &(dyn Fn(u64) + Sync) = &report;
+        let outcome = job(&*cancel, report);
+        (outcome, started.elapsed())
+    });
+
+    let (outcome, elapsed) = task
+        .await
+        .map_err(|e| format!("The search stopped unexpectedly: {}", e))?;
+
+    Ok(SearchResult {
+        checked: outcome.checked,
+        total: outcome.total as f64,
+        match_count: outcome.match_count,
+        truncated: outcome.truncated(),
+        cancelled: outcome.cancelled,
+        matches: outcome
+            .matches
+            .iter()
+            .map(|m| search::indices_to_words(m))
+            .collect(),
+        warning,
+        elapsed_ms: elapsed.as_millis() as u64,
+    })
 }
 
 /// words: the phrase with unknown positions marked as "?".
 /// license_key: optional. Required (and must validate) if more than
 /// FREE_TIER_MAX_BLANKS words are missing.
 #[tauri::command]
-fn search_missing(
+async fn search_missing(
+    window: tauri::Window,
+    control: tauri::State<'_, SearchControl>,
     words: Vec<String>,
     force: bool,
     license_key: Option<String>,
 ) -> Result<SearchResult, String> {
-    let wl = bip39::wordlist();
-    let blank_positions: Vec<usize> = words
-        .iter()
-        .enumerate()
-        .filter(|(_, w)| w.as_str() == "?")
-        .map(|(i, _)| i)
-        .collect();
-    let n_blanks = blank_positions.len();
+    let template = search::parse_template(&words)?;
+    let n_blanks = template.iter().filter(|w| w.is_none()).count();
 
     if n_blanks == 0 {
         return Err("No '?' slots found — mark each unknown word position with '?'.".into());
@@ -89,11 +189,11 @@ fn search_missing(
         }
     }
 
-    let space = 2048u64.pow(n_blanks as u32);
+    let space = 2048u128.pow(n_blanks as u32);
     let mut warning = None;
     if n_blanks > MAX_BLANKS_WITHOUT_WARNING {
         let msg = format!(
-            "{} missing words means up to {} combinations before checksum pruning. \
+            "{} missing words means {} combinations to check. \
              This may take a very long time.",
             n_blanks, space
         );
@@ -103,51 +203,35 @@ fn search_missing(
         warning = Some(msg);
     }
 
-    let mut matches = Vec::new();
-    let mut checked: u64 = 0;
-
-    // Iterative odometer-style counter over `n_blanks` positions, each 0..2048.
-    let mut counters = vec![0usize; n_blanks];
-    loop {
-        let mut candidate = words.clone();
-        for (pos, &word_idx) in blank_positions.iter().zip(counters.iter()) {
-            candidate[*pos] = wl[word_idx].to_string();
-        }
-        checked += 1;
-        if bip39::is_valid_mnemonic(&candidate) {
-            matches.push(candidate);
-        }
-
-        // Increment odometer.
-        let mut i = n_blanks;
-        loop {
-            if i == 0 {
-                return Ok(SearchResult {
-                    checked,
-                    matches,
-                    warning,
-                });
-            }
-            i -= 1;
-            counters[i] += 1;
-            if counters[i] < 2048 {
-                break;
-            }
-            counters[i] = 0;
-        }
-    }
+    run_search(window, &control, space as f64, warning, move |cancel, report| {
+        search::search_missing(&template, search::DEFAULT_MATCH_CAP, cancel, report)
+    })
+    .await
 }
 
 #[tauri::command]
-fn search_reorder(words: Vec<String>, force: bool) -> Result<SearchResult, String> {
-    let n = words.len();
-    let factorial: u64 = (1..=n as u64).product();
+async fn search_reorder(
+    window: tauri::Window,
+    control: tauri::State<'_, SearchControl>,
+    words: Vec<String>,
+    force: bool,
+) -> Result<SearchResult, String> {
+    let template = search::parse_template(&words)?;
+    if template.iter().any(|w| w.is_none()) {
+        return Err(
+            "Word order search needs every word. For unknown words, use the Missing Word(s) tab."
+                .into(),
+        );
+    }
+    let indices: Vec<u16> = template.into_iter().flatten().collect();
+    let n = indices.len();
 
+    let orderings: u128 = (1..=n as u128).product();
     let mut warning = None;
     if n > MAX_REORDER_WITHOUT_WARNING {
         let msg = format!(
             "{} words unordered means {} possible orderings — likely impractical to fully search.",
-            n, factorial
+            n, orderings
         );
         if !force {
             return Err(format!("{} Pass force=true to proceed anyway.", msg));
@@ -155,48 +239,16 @@ fn search_reorder(words: Vec<String>, force: bool) -> Result<SearchResult, Strin
         warning = Some(msg);
     }
 
-    let mut matches = Vec::new();
-    let mut checked: u64 = 0;
-    let mut indices: Vec<usize> = (0..n).collect();
-
-    // Heap's algorithm for in-place permutation generation.
-    let mut c = vec![0usize; n];
-    let check = |perm: &[usize], words: &[String]| -> Vec<String> {
-        perm.iter().map(|&i| words[i].clone()).collect()
-    };
-
-    let candidate = check(&indices, &words);
-    checked += 1;
-    if bip39::is_valid_mnemonic(&candidate) {
-        matches.push(candidate);
-    }
-
-    let mut i = 0;
-    while i < n {
-        if c[i] < i {
-            if i % 2 == 0 {
-                indices.swap(0, i);
-            } else {
-                indices.swap(c[i], i);
-            }
-            let candidate = check(&indices, &words);
-            checked += 1;
-            if bip39::is_valid_mnemonic(&candidate) {
-                matches.push(candidate);
-            }
-            c[i] += 1;
-            i = 0;
-        } else {
-            c[i] = 0;
-            i += 1;
-        }
-    }
-
-    Ok(SearchResult {
-        checked,
-        matches,
-        warning,
+    run_search(window, &control, orderings as f64, warning, move |cancel, report| {
+        search::search_reorder(&indices, search::DEFAULT_MATCH_CAP, cancel, report)
     })
+    .await
+}
+
+/// Asks the running search to stop. It returns its partial results.
+#[tauri::command]
+fn cancel_search(control: tauri::State<'_, SearchControl>) {
+    control.cancel.store(true, Ordering::SeqCst);
 }
 
 #[derive(Serialize)]
@@ -241,10 +293,12 @@ fn derive_seed_hex(words: Vec<String>, passphrase: String) -> Result<String, Str
 
 fn main() {
     tauri::Builder::default()
+        .manage(SearchControl::default())
         .invoke_handler(tauri::generate_handler![
             fix_typos,
             search_missing,
             search_reorder,
+            cancel_search,
             validate_mnemonic,
             validate_license,
             derive_seed_hex
