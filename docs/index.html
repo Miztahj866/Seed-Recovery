@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Seed Recovery Tool</title>
+<meta name="description" content="Missing a word from your crypto backup? An offline, open-source tool that finds it on your own computer. Your words never go online.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one dark column, terminal-panel hero beside the pitch, then a single
+   run of plain sections. Deliberately dark-only: it matches the desktop app. */
+:root {
+  --bg: #12141a;        /* app background */
+  --panel: #1b1e27;     /* app panel */
+  --line: #2a2e3a;      /* app borders */
+  --text: #e6e8ee;
+  --muted: #9aa0ad;
+  --accent: #4f8cff;    /* app's primary blue: buttons, links */
+  --good: #3ecf8e;      /* checks passing */
+  --warn: #f5b84f;      /* the missing word */
+  --bad: #ff6b6b;
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 400 17px/1.6 var(--body);
+  -webkit-font-smoothing: antialiased;
+}
+.wrap {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding-left: max(20px, env(safe-area-inset-left, 0px));
+  padding-right: max(20px, env(safe-area-inset-right, 0px));
+}
+a { color: var(--accent); text-underline-offset: 3px; }
+a:hover { color: #7aa8ff; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; }
+h2 { font-size: clamp(30px, 4vw, 42px); line-height: 1.05; letter-spacing: -0.025em; font-weight: 800; }
+h3 { font-size: 21px; font-weight: 700; letter-spacing: -0.01em; }
+p { margin: 0; }
+.eyebrow { font: 500 13px/1 var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--warn); }
+.muted { color: var(--muted); }
+
+/* nav */
+.nav { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-block: 22px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.brand { font: 700 18px/1 var(--display); color: var(--text); text-decoration: none; display: flex; align-items: center; gap: 10px; }
+.brand-mark { width: 26px; height: 26px; border-radius: 6px; background: var(--panel); border: 1px solid var(--line); display: grid; place-items: center; font: 600 13px/1 var(--mono); color: var(--warn); }
+.nav-links { display: flex; gap: 22px; font-size: 15px; flex-wrap: wrap; }
+.nav-links a { color: var(--muted); text-decoration: none; }
+.nav-links a:hover { color: var(--text); }
+
+/* buttons */
+.btns { display: flex; gap: 12px; flex-wrap: wrap; }
+.btn { display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 22px; border-radius: 8px; font: 600 16px/1 var(--body); text-decoration: none; border: 1px solid transparent; transition: background .15s, border-color .15s; }
+.btn-primary { background: var(--accent); color: #0b0d12; }
+.btn-primary:hover { background: #6d9fff; color: #0b0d12; }
+.btn-ghost { border-color: var(--line); color: var(--text); background: transparent; }
+.btn-ghost:hover { border-color: var(--muted); color: var(--text); }
+
+/* hero */
+.hero { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 56px; align-items: center; padding-block: 72px 80px; }
+.hero-copy { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+.hero h1 { font-size: clamp(44px, 6.4vw, 78px); line-height: 0.95; letter-spacing: -0.04em; font-weight: 800; }
+.lede { font-size: 20px; line-height: 1.5; color: #c4c8d2; max-width: 34ch; }
+.facts { display: flex; gap: 10px; flex-wrap: wrap; font: 400 14px/1 var(--mono); color: var(--muted); }
+.facts span { padding: 8px 12px; border: 1px solid var(--line); border-radius: 6px; }
+
+/* terminal */
+.term { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; font: 400 15px/1.6 var(--mono); min-width: 0; overflow: hidden; }
+.term-bar { display: flex; justify-content: space-between; align-items: center; padding: 12px 18px; border-bottom: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+.term-bar .offline { color: var(--good); display: inline-flex; align-items: center; gap: 7px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
+.term-body { padding: 20px 20px 22px; display: flex; flex-direction: column; gap: 16px; }
+.words { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.w { display: flex; gap: 8px; align-items: baseline; padding: 9px 10px; border: 1px solid var(--line); border-radius: 7px; background: #161921; font-size: 14px; color: #c9ccd4; min-width: 0; }
+.w b { font-weight: 400; color: #6b7180; font-size: 12px; }
+.w.miss { border: 1.5px dashed var(--warn); background: rgba(245, 184, 79, 0.07); color: var(--warn); }
+.log { display: flex; flex-direction: column; gap: 2px; color: #c9ccd4; font-size: 14px; }
+.log .p { color: #6b7180; }
+.log .ok { color: var(--good); }
+.bar { height: 8px; border-radius: 4px; background: #232733; overflow: hidden; }
+.bar i { display: block; height: 100%; width: 100%; background: var(--accent); transform-origin: left; }
+@media (prefers-reduced-motion: no-preference) {
+  .bar i { animation: fill 2.4s cubic-bezier(.3,.1,.2,1) both; }
+  @keyframes fill { from { transform: scaleX(.12); } to { transform: scaleX(1); } }
+}
+.term-note { font-size: 12px; color: #6b7180; padding: 0 20px 16px; }
+
+/* sections */
+section.block { padding-block: 72px; border-top: 1px solid var(--line); }
+.head { display: flex; flex-direction: column; gap: 14px; margin-bottom: 40px; max-width: 640px; }
+.head p { color: var(--muted); font-size: 18px; }
+
+.steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; counter-reset: s; list-style: none; margin: 0; padding: 0; }
+.steps li { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.steps li::before { counter-increment: s; content: "Step " counter(s); font: 500 13px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.steps p { color: var(--muted); }
+
+.cando { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 40px; }
+.cando ul { list-style: none; margin: 16px 0 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.cando li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 10px; color: #c4c8d2; }
+.cando svg { margin-top: 4px; }
+
+.odds { width: 100%; border-collapse: collapse; font-size: 16px; }
+.odds-box { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+.odds th, .odds td { text-align: left; padding: 14px 18px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.odds tr:last-child td { border-bottom: 0; }
+.odds th { font: 500 13px/1.3 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); background: #161921; }
+.odds td:first-child { white-space: nowrap; font-weight: 600; }
+.odds .num { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
+.tag { display: inline-block; font: 500 12px/1 var(--mono); padding: 5px 8px; border-radius: 5px; letter-spacing: .04em; }
+.tag-good { color: var(--good); background: rgba(62,207,142,.1); }
+.tag-warn { color: var(--warn); background: rgba(245,184,79,.1); }
+.tag-bad { color: var(--bad); background: rgba(255,107,107,.1); }
+
+.prices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; align-items: stretch; }
+.price { border: 1px solid var(--line); border-radius: 14px; padding: 28px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.price.feature { background: var(--panel); border-color: #3a4152; }
+.price .amt { font: 800 44px/1 var(--display); letter-spacing: -0.03em; }
+.price .amt small { font: 400 15px/1 var(--body); color: var(--muted); letter-spacing: 0; margin-left: 4px; }
+.price ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; color: #c4c8d2; font-size: 15px; flex: 1; }
+.price li::before { content: "– "; color: var(--muted); }
+.price .btn { justify-content: center; }
+
+.trust { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 40px; }
+.trust div { display: flex; flex-direction: column; gap: 8px; }
+.trust p { color: var(--muted); }
+.trust code { font: 400 14px var(--mono); color: var(--text); background: #1f2330; padding: 2px 6px; border-radius: 4px; }
+
+.warnbox { border: 1px solid rgba(255,107,107,.35); background: rgba(255,107,107,.06); border-radius: 12px; padding: 22px 24px; display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 14px; }
+.warnbox p { color: #e9c9c9; }
+.warnbox strong { color: var(--text); }
+
+footer { border-top: 1px solid var(--line); padding-block: 36px 48px; color: var(--muted); font-size: 14px; display: flex; flex-direction: column; gap: 12px; }
+footer .links { display: flex; gap: 20px; flex-wrap: wrap; }
+
+@media (max-width: 860px) {
+  .hero { grid-template-columns: minmax(0, 1fr); gap: 40px; padding-block: 48px 56px; }
+  .steps, .prices, .cando, .trust { grid-template-columns: minmax(0, 1fr); }
+  section.block { padding-block: 56px; }
+}
+@media (max-width: 420px) {
+  .words { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .nav-links { gap: 16px; }
+  .odds td:first-child { white-space: normal; }
+}
+</style>
+</head>
+<body style="margin:0">
+
+<div class="wrap">
+  <nav class="nav" aria-label="Main">
+    <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true">?</span>Seed Recovery Tool</a>
+    <div class="nav-links">
+      <a href="#how">How it works</a>
+      <a href="#odds">Your chances</a>
+      <a href="#pricing">Pricing</a>
+      <a href="https://github.com/Miztahj866/Seed-Recovery">GitHub</a>
+    </div>
+  </nav>
+
+  <header class="hero" id="top">
+    <div class="hero-copy">
+      <div class="eyebrow">Offline · Open source</div>
+      <h1>Missing a word from your seed phrase?</h1>
+      <p class="lede">Type in the words you have, mark the ones you don't, and let your own computer find the rest. Your words never go online.</p>
+      <div class="btns">
+        <a class="btn btn-primary" href="https://github.com/Miztahj866/Seed-Recovery">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+          Get it on GitHub
+        </a>
+        <a class="btn btn-ghost" href="#pricing">See pricing</a>
+      </div>
+      <div class="facts"><span>Free for 1 missing word</span><span>Works offline</span><span>All code public</span></div>
+    </div>
+
+    <figure class="term" style="margin:0" aria-label="Example search: 12-word phrase with word 7 missing; all 2,048 possible words checked, 128 pass the checksum">
+      <div class="term-bar"><span>recovery · example</span><span class="offline"><span class="dot" aria-hidden="true"></span>offline</span></div>
+      <div class="term-body">
+        <div class="words" aria-hidden="true">
+          <div class="w"><b>01</b>••••••</div>
+          <div class="w"><b>02</b>••••••</div>
+          <div class="w"><b>03</b>••••••</div>
+          <div class="w"><b>04</b>••••••</div>
+          <div class="w"><b>05</b>••••••</div>
+          <div class="w"><b>06</b>••••••</div>
+          <div class="w miss"><b>07</b>?????</div>
+          <div class="w"><b>08</b>••••••</div>
+          <div class="w"><b>09</b>••••••</div>
+          <div class="w"><b>10</b>••••••</div>
+          <div class="w"><b>11</b>••••••</div>
+          <div class="w"><b>12</b>••••••</div>
+        </div>
+        <div class="bar" aria-hidden="true"><i></i></div>
+        <div class="log">
+          <div><span class="p">&gt;</span> 11 words entered, 1 missing (position 07)</div>
+          <div><span class="p">&gt;</span> checking 2,048 possible words</div>
+          <div class="ok">✓ 128 phrases pass the checksum</div>
+          <div><span class="p">&gt;</span> next: test them in your wallet</div>
+        </div>
+      </div>
+      <figcaption class="term-note">Illustration. Words are hidden here; the app shows yours only on your screen.</figcaption>
+    </figure>
+  </header>
+</div>
+
+<section class="block" id="how">
+  <div class="wrap">
+    <div class="head">
+      <div class="eyebrow">How it works</div>
+      <h2>Every word comes from a fixed list of 2,048. So a computer can try them all.</h2>
+    </div>
+    <ol class="steps">
+      <li><h3>Unplug, then enter what you have</h3><p>Download the app, turn off your internet, and type the words you're sure of. Mark each gap with a <code style="font-family:var(--mono)">?</code>. Smudged words can use the letters you can still read.</p></li>
+      <li><h3>Let it search</h3><p>The app tries every possible word in each gap. Built-in math in your phrase (the checksum) throws out most wrong answers, leaving a short list to try.</p></li>
+      <li><h3>Check it's really yours</h3><p>A phrase can pass the checksum and still not be yours. Restore it in your wallet and make sure your old addresses and coins show up before you move any money.</p></li>
+    </ol>
+  </div>
+</section>
+
+<section class="block" id="odds">
+  <div class="wrap">
+    <div class="head">
+      <div class="eyebrow">Your chances</div>
+      <h2>Here are the odds, up front.</h2>
+      <p>No tool can recover every wallet. How much you still have decides what's possible.</p>
+    </div>
+    <div class="odds-box">
+      <table class="odds">
+        <thead><tr><th scope="col">What's wrong</th><th scope="col">Outlook</th><th scope="col">Tier</th></tr></thead>
+        <tbody>
+          <tr><td>A typo</td><td><span class="tag tag-good">Very good</span></td><td>Free</td></tr>
+          <tr><td>1 missing word</td><td><span class="tag tag-good">Very good · seconds</span></td><td>Free</td></tr>
+          <tr><td>Words out of order</td><td><span class="tag tag-warn">Good if only a few are swapped</span></td><td>Free</td></tr>
+          <tr><td>2 missing words</td><td><span class="tag tag-warn">Possible · leaves many phrases to check</span></td><td>Paid</td></tr>
+          <tr><td>3 missing words</td><td><span class="tag tag-bad">Hard · can take a very long time</span></td><td>Paid</td></tr>
+          <tr><td>Whole phrase lost</td><td><span class="tag tag-bad">Not possible, for anyone</span></td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="pricing">
+  <div class="wrap">
+    <div class="head">
+      <div class="eyebrow">Pricing</div>
+      <h2>Free to try. Pay only if you need more.</h2>
+      <p>The paid version doesn't guarantee a result. You're paying for the search, and the table above tells you the odds before you buy.</p>
+    </div>
+    <div class="prices">
+      <div class="price">
+        <h3>Free</h3>
+        <div class="amt">$0</div>
+        <ul><li>Fix typos</li><li>Find 1 missing word</li><li>Sort out word order</li><li>Works fully offline</li></ul>
+        <a class="btn btn-ghost" href="https://github.com/Miztahj866/Seed-Recovery">View on GitHub</a>
+      </div>
+      <div class="price feature">
+        <h3>Multi-word license</h3>
+        <div class="amt">$25<small>one time</small></div>
+        <ul><li>Search for 2 or more missing words</li><li>Unlocks the desktop app you already have</li><li>License key sent by email after purchase</li><li>Works offline once entered</li></ul>
+        <a class="btn btn-primary" href="https://unothatguy.gumroad.com/l/jifhlt">Buy the license</a>
+      </div>
+      <div class="price">
+        <h3>Don't Lose Your Crypto</h3>
+        <div class="amt">$19<small>PDF guide</small></div>
+        <ul><li>Back up your words the right way</li><li>Paper vs. metal, and where to keep it</li><li>Let your family get your crypto</li><li>13 pages, plain English</li></ul>
+        <a class="btn btn-ghost" href="https://unothatguy.gumroad.com/l/86601">Get the guide</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="trust">
+  <div class="wrap">
+    <div class="head">
+      <div class="eyebrow">Why you can trust it</div>
+      <h2>Don't take our word for it. Check.</h2>
+    </div>
+    <div class="trust">
+      <div><h3>Nothing leaves your computer</h3><p>The app has no network access switched on at all. Unplug your internet first anyway; it works the same.</p></div>
+      <div><h3>All the code is public</h3><p>Anyone can read every line on GitHub. The command-line version is free and open source too, under the MIT license.</p></div>
+      <div><h3>Checked against the standard</h3><p>The core math is tested against the official BIP39 test vectors, the same ones other wallet software uses. Run <code>python3 tests/test_vectors.py</code> to see for yourself.</p></div>
+      <div><h3>Nobody asks for your words</h3><p>There's no support chat and no website to type them into. If anyone ever asks for your words, it isn't us.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="block" style="padding-block: 0 72px; border-top: 0">
+  <div class="wrap">
+    <div class="warnbox">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ff6b6b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+      <p><strong>Never type your seed phrase into a website, including any that claims to be this tool.</strong> Recovery only belongs on your own offline computer. Anyone who promises "guaranteed" recovery, or asks for your words or an upfront fee, is running a scam.</p>
+    </div>
+  </div>
+</section>
+
+<div class="wrap">
+  <footer>
+    <div class="links">
+      <a href="https://github.com/Miztahj866/Seed-Recovery">GitHub</a>
+      <a href="https://unothatguy.gumroad.com/l/jifhlt">License</a>
+      <a href="https://unothatguy.gumroad.com/l/86601">Guide</a>
+    </div>
+    <p>Made by Jeremy (Miztahj866). Provided as-is with no warranty. Always verify a recovered phrase against an address you know is yours before moving any funds. This is not financial advice.</p>
+  </footer>
+</div>
+</body>
+</html>
