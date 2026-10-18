@@ -8,35 +8,29 @@ public source — not just "trust us, we compiled it honestly."
 This matters more for this project than most, since it handles seed phrase
 fragments. Reproducibility is a mathematical trust signal, not a marketing claim.
 
-## Why this can't be fully verified from this development sandbox
+## Before trusting any build
 
-This project was scaffolded in an environment without a Rust toolchain and
-without network access to install one, so the Tauri/Rust portion below has
-**not yet been compiled or run** — only written and carefully mirrored against
-the already-tested Python reference implementation in `../src/bip39.py`
-(33/33 official test vectors passing there).
-
-Before this GUI is trusted with a real phrase, whoever builds it locally MUST:
+Whoever builds this locally should first run:
 
 ```bash
 cd gui/src-tauri
 cargo test
 ```
 
-and confirm all tests in the `tests` module of `src/bip39.rs` pass — those are
-the same official Trezor/BIP39 reference vectors, checked independently in Rust.
-Do not skip this step. Do not trust this GUI until that command shows all tests
-passing on your own machine.
+and confirm every test passes, including the official Trezor/BIP39 reference
+vectors in `src/bip39.rs` and the BIP84/BIP86 reference addresses in
+`src/address.rs`. The same tests gate every official release (below).
 
-## Exact build environment (pin these before publishing a real release)
+## Exact build environment (pinned)
 
-Reproducibility is sensitive to every one of these — pin exact versions once
-this moves toward a real release, don't leave them floating:
+Reproducibility is sensitive to every one of these, so each is pinned:
 
-- **OS + version** used for the official build (e.g. `ubuntu-22.04` via CI)
-- **Rust toolchain version** — pin via a `rust-toolchain.toml` file (not yet
-  added; add this before the first tagged release)
-- **Node version** — pin via `.nvmrc` or `package.json` engines field
+- **OS images** for official builds: `windows-2022`, `macos-14` (universal
+  Intel + Apple Silicon build) and `ubuntu-22.04`, in
+  `.github/workflows/release.yml`
+- **Rust toolchain**: `rust-toolchain.toml` at the repo root. rustup installs
+  it automatically the first time you build.
+- **Node**: `gui/.nvmrc`
 - **Cargo.lock and package-lock.json** — commit both, always. Never `.gitignore`
   lock files even though `Cargo.lock` is sometimes excluded for libraries — this
   is an application, and applications should always commit their lock files so
@@ -66,11 +60,34 @@ npm run build
 
 The output binary will be under `gui/src-tauri/target/release/bundle/`.
 
-## Checksum publication (once builds are real)
+## Official releases
+
+Releases are built by GitHub Actions, not on anyone's personal machine:
+
+1. Raise the version in `gui/src-tauri/tauri.conf.json`,
+   `gui/src-tauri/Cargo.toml` and `gui/package.json`, and merge to `main`.
+2. Actions tab → **Release** → **Run workflow** (on `main`).
+3. The workflow runs the full test suite, builds installers on all three
+   systems, refuses to continue if the seller-only `gen_license` tool ended
+   up in a bundle, and creates a **draft** release with the installers,
+   `SHA256SUMS.txt`, release notes (from `.github/RELEASE_NOTES.md`) and the
+   exact build environment.
+4. Review the draft, download and try at least one installer, then press
+   **Publish**. Nothing is public before that.
+
+Pull requests that change the workflow do a dry run of the same build
+without publishing anything.
+
+Installers (`.msi`, `.exe`, `.dmg`, `.AppImage`, `.deb`) contain timestamps,
+so they are not byte-for-byte reproducible even from the same source. The
+app binary inside them is the part to compare.
+
+## Checksum publication
 
 For every tagged release:
 
-1. Compute `sha256sum` of every published binary/installer.
+1. Compute `sha256sum` of every published binary/installer (the release
+   workflow does this and publishes `SHA256SUMS.txt`).
 2. Publish those hashes in **two independent places** — e.g., the GitHub
    Release notes (GPG-signed tag) AND a separate pinned post (a Keybase proof,
    a long-standing forum account, etc.) that isn't controlled by the same
@@ -83,19 +100,11 @@ For every tagged release:
 
 ## What's deliberately NOT done yet, and why
 
-- **CI is set up** (`.github/workflows/test.yml`) — runs the Python test
-  vectors, the Rust test vectors, and frontend syntax checks across Linux,
-  macOS, and Windows on every push, once this repo has a GitHub remote.
-  This is what actually answers "does this work cross-platform" — more
-  reliably than any single contributor's machine, since the exact OS image
-  and toolchain versions GitHub uses are documented and reproducible by
-  anyone.
 - **No code signing certificates yet.** Windows Authenticode and macOS
-  Developer ID signing require paid certificates; per the project roadmap,
-  this comes after there's a working, tested build — not before. See
-  `docs/CODE_SIGNING.md`.
-- **No published binaries yet at all.** Nothing should be distributed as a
-  binary until: (a) `cargo test` passes locally for a real human (done — see
-  `docs/PRIVATE_BETA.md`), (b) CI is green across all three OSes, (c) the
-  repo is public and has had at least some outside eyes on it, per the
-  roadmap's "community scrutiny before public binaries" ordering.
+  Developer ID signing require paid certificates; see `docs/CODE_SIGNING.md`.
+  Until then, release notes explain the "unknown publisher" warnings and how
+  to check a download's checksum first. The macOS app is ad-hoc signed
+  (`signingIdentity: "-"`), so macOS asks for permission to open it rather
+  than reporting it as damaged.
+- **No GPG-signed tags or second checksum location yet** (see the checksum
+  steps above). Both are worth adding before wide distribution.

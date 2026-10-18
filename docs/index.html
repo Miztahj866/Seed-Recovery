@@ -84,6 +84,7 @@ p { margin: 0; }
 .w { display: flex; gap: 8px; align-items: baseline; padding: 9px 10px; border: 1px solid var(--line); border-radius: 7px; background: #161921; font-size: 14px; color: #c9ccd4; min-width: 0; }
 .w b { font-weight: 400; color: #6b7180; font-size: 12px; }
 .w.miss { border: 1.5px dashed var(--warn); background: rgba(245, 184, 79, 0.07); color: var(--warn); }
+.w.found { border: 1.5px solid var(--good); background: rgba(62, 207, 142, 0.08); color: var(--good); }
 .log { display: flex; flex-direction: column; gap: 2px; color: #c9ccd4; font-size: 14px; }
 .log .p { color: #6b7180; }
 .log .ok { color: var(--good); }
@@ -174,16 +175,16 @@ footer .links { display: flex; gap: 20px; flex-wrap: wrap; }
       <h1>Missing a word from your seed phrase?</h1>
       <p class="lede">Type in the words you have, mark the ones you don't, and let your own computer find the rest. Your words never go online.</p>
       <div class="btns">
-        <a class="btn btn-primary" href="https://github.com/Miztahj866/Seed-Recovery">
+        <a class="btn btn-primary" href="https://github.com/Miztahj866/Seed-Recovery/releases/latest">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
-          Get it on GitHub
+          Download free
         </a>
         <a class="btn btn-ghost" href="#pricing">See pricing</a>
       </div>
-      <div class="facts"><span>Free for 1 missing word</span><span>Works offline</span><span>All code public</span></div>
+      <div class="facts"><span>Free for 1 missing word</span><span>Works offline</span><span>Windows · macOS · Linux</span></div>
     </div>
 
-    <figure class="term" style="margin:0" aria-label="Example search: 12-word phrase with word 7 missing; all 2,048 possible words checked, 128 pass the checksum">
+    <figure class="term" style="margin:0" aria-label="Example search: 12-word phrase with word 7 missing; 2,048 words checked, 128 pass the checksum, 1 matches the wallet address">
       <div class="term-bar"><span>recovery · example</span><span class="offline"><span class="dot" aria-hidden="true"></span>offline</span></div>
       <div class="term-body">
         <div class="words" aria-hidden="true">
@@ -193,7 +194,7 @@ footer .links { display: flex; gap: 20px; flex-wrap: wrap; }
           <div class="w"><b>04</b>••••••</div>
           <div class="w"><b>05</b>••••••</div>
           <div class="w"><b>06</b>••••••</div>
-          <div class="w miss"><b>07</b>?????</div>
+          <div class="w found"><b>07</b>found</div>
           <div class="w"><b>08</b>••••••</div>
           <div class="w"><b>09</b>••••••</div>
           <div class="w"><b>10</b>••••••</div>
@@ -203,9 +204,9 @@ footer .links { display: flex; gap: 20px; flex-wrap: wrap; }
         <div class="bar" aria-hidden="true"><i></i></div>
         <div class="log">
           <div><span class="p">&gt;</span> 11 words entered, 1 missing (position 07)</div>
-          <div><span class="p">&gt;</span> checking 2,048 possible words</div>
-          <div class="ok">✓ 128 phrases pass the checksum</div>
-          <div><span class="p">&gt;</span> next: test them in your wallet</div>
+          <div><span class="p">&gt;</span> checking 2,048 words against bc1q…6fyu</div>
+          <div><span class="p">&gt;</span> 128 pass the checksum</div>
+          <div class="ok">✓ 1 owns your address: found it</div>
         </div>
       </div>
       <figcaption class="term-note">Illustration. Words are hidden here; the app shows yours only on your screen.</figcaption>
@@ -221,8 +222,8 @@ footer .links { display: flex; gap: 20px; flex-wrap: wrap; }
     </div>
     <ol class="steps">
       <li><h3>Unplug, then enter what you have</h3><p>Download the app, turn off your internet, and type the words you're sure of. Mark each gap with a <code style="font-family:var(--mono)">?</code>. Smudged words can use the letters you can still read.</p></li>
-      <li><h3>Let it search</h3><p>The app tries every possible word in each gap. Built-in math in your phrase (the checksum) throws out most wrong answers, leaving a short list to try.</p></li>
-      <li><h3>Check it's really yours</h3><p>A phrase can pass the checksum and still not be yours. Restore it in your wallet and make sure your old addresses and coins show up before you move any money.</p></li>
+      <li><h3>Let it search</h3><p>The app tries every possible word in each gap. Built-in math in your phrase (the checksum) throws out most wrong answers in a fraction of a second.</p></li>
+      <li><h3>Match it to your wallet</h3><p>Many phrases pass the checksum, but only one is yours. Give the app one address from your wallet and it picks out the phrase that owns it.</p></li>
     </ol>
   </div>
 </section>
@@ -241,8 +242,8 @@ footer .links { display: flex; gap: 20px; flex-wrap: wrap; }
           <tr><td>A typo</td><td><span class="tag tag-good">Very good</span></td><td>Free</td></tr>
           <tr><td>1 missing word</td><td><span class="tag tag-good">Very good · seconds</span></td><td>Free</td></tr>
           <tr><td>Words out of order</td><td><span class="tag tag-warn">Good if only a few are swapped</span></td><td>Free</td></tr>
-          <tr><td>2 missing words</td><td><span class="tag tag-warn">Possible · leaves many phrases to check</span></td><td>Paid</td></tr>
-          <tr><td>3 missing words</td><td><span class="tag tag-bad">Hard · can take a very long time</span></td><td>Paid</td></tr>
+          <tr><td>2 missing words</td><td><span class="tag tag-warn">Good with your address · minutes</span></td><td>Paid</td></tr>
+          <tr><td>3 missing words</td><td><span class="tag tag-bad">Hard · can take days</span></td><td>Paid</td></tr>
           <tr><td>Whole phrase lost</td><td><span class="tag tag-bad">Not possible, for anyone</span></td><td>—</td></tr>
         </tbody>
       </table>
@@ -261,8 +262,8 @@ footer .links { display: flex; gap: 20px; flex-wrap: wrap; }
       <div class="price">
         <h3>Free</h3>
         <div class="amt">$0</div>
-        <ul><li>Fix typos</li><li>Find 1 missing word</li><li>Sort out word order</li><li>Works fully offline</li></ul>
-        <a class="btn btn-ghost" href="https://github.com/Miztahj866/Seed-Recovery">View on GitHub</a>
+        <ul><li>Fix typos</li><li>Find 1 missing word</li><li>Match it to your address</li><li>Sort out word order</li></ul>
+        <a class="btn btn-ghost" href="https://github.com/Miztahj866/Seed-Recovery/releases/latest">Download</a>
       </div>
       <div class="price feature">
         <h3>Multi-word license</h3>
