@@ -3,6 +3,7 @@
 // call into the Rust backend commands defined in src-tauri/src/main.rs.
 
 const { invoke } = window.__TAURI__.tauri;
+const { listen } = window.__TAURI__.event;
 
 // --- Tab switching ---
 document.querySelectorAll(".tab-btn").forEach((btn) => {
@@ -20,6 +21,189 @@ function splitWords(text) {
 
 function renderPhrase(words) {
   return words.join(" ");
+}
+
+// Show an error as plain text. Error messages can echo back words the user
+// typed, so they never go through innerHTML.
+function showError(out, message) {
+  const span = document.createElement("span");
+  span.className = "bad";
+  span.textContent = String(message);
+  out.replaceChildren(span);
+}
+
+function formatDuration(seconds) {
+  if (!isFinite(seconds)) return "unknown";
+  if (seconds < 1) return "under a second";
+  if (seconds < 60) return `${Math.round(seconds)} s`;
+  if (seconds < 3600) {
+    const m = Math.floor(seconds / 60);
+    const s = Math.round(seconds % 60);
+    return s ? `${m} min ${s} s` : `${m} min`;
+  }
+  if (seconds < 86400) {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.round((seconds % 3600) / 60);
+    return m ? `${h} h ${m} min` : `${h} h`;
+  }
+  const d = seconds / 86400;
+  return d < 10 ? `${d.toFixed(1)} days` : `${Math.round(d).toLocaleString()} days`;
+}
+
+function formatCount(n) {
+  return n < 1e15 ? Math.round(n).toLocaleString() : n.toExponential(2);
+}
+
+// --- Search progress (shared by Missing Word(s) and Word Order) ---
+// Only one search runs at a time, so one listener updates whichever
+// progress display is active.
+let activeProgress = null;
+
+listen("search-progress", (event) => {
+  if (activeProgress) activeProgress.update(event.payload);
+});
+
+function startProgress(prefix, unit) {
+  const box = document.getElementById(`${prefix}-progress`);
+  const fill = box.querySelector(".progress-fill");
+  const text = box.querySelector(".progress-text");
+  const runBtn = document.getElementById(`${prefix}-run`);
+  const cancelBtn = document.getElementById(`${prefix}-cancel`);
+  const started = performance.now();
+
+  fill.style.width = "0%";
+  text.textContent = "Starting...";
+  box.hidden = false;
+  runBtn.disabled = true;
+  cancelBtn.hidden = false;
+  cancelBtn.disabled = false;
+  cancelBtn.textContent = "Cancel";
+
+  const progress = {
+    update({ checked, total }) {
+      const elapsed = (performance.now() - started) / 1000;
+      const rate = checked / Math.max(elapsed, 0.001);
+      const pct = total > 0 ? Math.min(100, (checked / total) * 100) : 0;
+      const left = rate > 0 ? (total - checked) / rate : Infinity;
+      fill.style.width = `${pct}%`;
+      text.textContent =
+        `${formatCount(checked)} of ${formatCount(total)} ${unit} checked ` +
+        `(${pct < 1 ? pct.toFixed(2) : pct.toFixed(0)}%) · ` +
+        `${formatCount(rate)}/s · about ${formatDuration(left)} left`;
+    },
+    stop() {
+      box.hidden = true;
+      runBtn.disabled = false;
+      cancelBtn.hidden = true;
+      if (activeProgress === progress) activeProgress = null;
+    },
+  };
+  activeProgress = progress;
+  return progress;
+}
+
+["missing", "reorder"].forEach((prefix) => {
+  const btn = document.getElementById(`${prefix}-cancel`);
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    btn.textContent = "Stopping...";
+    try {
+      await invoke("cancel_search");
+    } catch (e) {
+      // Nothing useful to show: the search result reports what happened.
+    }
+  });
+});
+
+// Asks a yes/no question inside the output box and resolves to true or
+// false when the user clicks. Used instead of window.confirm(), which
+// Tauri replaces with a version that doesn't wait for an answer (so the
+// search would start without the user ever seeing the warning).
+function askToContinue(out, question) {
+  return new Promise((resolve) => {
+    const box = document.createElement("div");
+    box.className = "ask";
+    const text = document.createElement("p");
+    text.className = "warn";
+    text.textContent = question;
+    const hint = document.createElement("p");
+    hint.textContent = "If you start it, you can press Cancel at any time.";
+    const row = document.createElement("div");
+    row.className = "actions";
+    const yes = document.createElement("button");
+    yes.textContent = "Continue";
+    const no = document.createElement("button");
+    no.className = "secondary";
+    no.textContent = "Don't run";
+    row.append(yes, no);
+    box.append(text, hint, row);
+    out.replaceChildren(box);
+    no.focus();
+    yes.addEventListener("click", () => resolve(true), { once: true });
+    no.addEventListener("click", () => resolve(false), { once: true });
+  });
+}
+
+// Runs a search command. If the backend first answers with a "this will
+// take a long time" warning, asks the user before running it for real.
+async function runSearch(prefix, unit, command, args, out) {
+  let progress = startProgress(prefix, unit);
+  try {
+    try {
+      return await invoke(command, { ...args, force: false });
+    } catch (warnMsg) {
+      const msg = String(warnMsg);
+      if (!msg.includes("Pass force=true")) throw warnMsg;
+      progress.stop();
+      const question = msg
+        .replace(" Pass force=true to proceed anyway.", "")
+        .replace(/\d{5,}/g, (n) => formatCount(Number(n)));
+      const runBtn = document.getElementById(`${prefix}-run`);
+      runBtn.disabled = true;
+      const go = await askToContinue(out, question);
+      runBtn.disabled = false;
+      if (!go) {
+        out.textContent = "Not started.";
+        return null;
+      }
+      out.textContent = "Searching...";
+      progress = startProgress(prefix, unit);
+      return await invoke(command, { ...args, force: true });
+    }
+  } finally {
+    progress.stop();
+  }
+}
+
+// Turns a search result into the text shown in the output box.
+function describeResult(result, unit) {
+  const lines = [];
+  const time = formatDuration(result.elapsed_ms / 1000);
+  if (result.cancelled) {
+    const pct = result.total > 0 ? (result.checked / result.total) * 100 : 0;
+    lines.push(
+      `Stopped after checking ${formatCount(result.checked)} of ${formatCount(result.total)} ${unit} ` +
+        `(${pct < 1 ? pct.toFixed(2) : pct.toFixed(0)}%) in ${time}.`
+    );
+  } else {
+    lines.push(`Checked ${formatCount(result.checked)} ${unit} in ${time}.`);
+  }
+  lines.push("");
+  if (result.match_count > 0) {
+    lines.push(
+      `${result.match_count.toLocaleString()} candidate(s) pass the checksum` +
+        (result.cancelled ? " so far" : "") +
+        (result.truncated ? `. Showing the first ${result.matches.length.toLocaleString()}:` : ":")
+    );
+    for (const m of result.matches) lines.push(`  ${renderPhrase(m)}`);
+    lines.push("");
+    lines.push(
+      "A passing checksum means VALID BIP39, not necessarily YOUR phrase. Verify against a known address."
+    );
+  } else if (result.cancelled) {
+    lines.push("No matches in the part that was searched.");
+  }
+  return lines;
 }
 
 // --- Fix Typos ---
@@ -50,17 +234,19 @@ document.getElementById("fix-run").addEventListener("click", async () => {
         ? "✓ This phrase PASSES the BIP39 checksum."
         : "✗ This phrase does NOT pass the checksum."
     );
-    out.innerHTML = lines
-      .map((l) =>
-        l.startsWith("✓")
-          ? `<span class="good">${l}</span>`
-          : l.startsWith("✗")
-          ? `<span class="bad">${l}</span>`
-          : l
-      )
-      .join("\n");
+    // Build the output as text nodes: the suggestions echo back what the
+    // user typed, so none of it goes through innerHTML.
+    out.replaceChildren(
+      ...lines.flatMap((l, i) => {
+        const node = document.createElement("span");
+        if (l.startsWith("✓")) node.className = "good";
+        else if (l.startsWith("✗")) node.className = "bad";
+        node.textContent = l;
+        return i < lines.length - 1 ? [node, "\n"] : [node];
+      })
+    );
   } catch (e) {
-    out.innerHTML = `<span class="bad">${e}</span>`;
+    showError(out, e);
   }
 });
 
@@ -119,36 +305,17 @@ document.getElementById("missing-run").addEventListener("click", async () => {
     return;
   }
   const licenseKey = missingLicenseKey.value.trim() || null;
-  out.textContent = "Searching... this may take a moment.";
+  out.textContent = "Searching...";
   try {
-    let result;
-    try {
-      result = await invoke("search_missing", { words, force: false, licenseKey });
-    } catch (warnMsg) {
-      if (String(warnMsg).includes("requires a paid license")) {
-        out.innerHTML = `<span class="bad">${warnMsg}</span>`;
-        return;
-      }
-      if (!confirm(`${warnMsg}\n\nContinue anyway?`)) {
-        out.textContent = "Cancelled.";
-        return;
-      }
-      result = await invoke("search_missing", { words, force: true, licenseKey });
-    }
-    const lines = [`Checked ${result.checked.toLocaleString()} combinations.`, ""];
-    if (result.matches.length > 0) {
-      lines.push(`Found ${result.matches.length} candidate(s) passing the checksum:`);
-      for (const m of result.matches) lines.push(`  ${renderPhrase(m)}`);
-      lines.push("");
-      lines.push(
-        "A passing checksum means VALID BIP39, not necessarily YOUR phrase. Verify against a known address."
-      );
-    } else {
+    const result = await runSearch("missing", "combinations", "search_missing", { words, licenseKey }, out);
+    if (!result) return;
+    const lines = describeResult(result, "combinations");
+    if (result.match_count === 0 && !result.cancelled) {
       lines.push("No valid combinations found. Double-check the known words for typos.");
     }
     out.textContent = lines.join("\n");
   } catch (e) {
-    out.innerHTML = `<span class="bad">${e}</span>`;
+    showError(out, e);
   }
 });
 
@@ -160,27 +327,16 @@ document.getElementById("reorder-run").addEventListener("click", async () => {
     out.textContent = "Enter at least the full set of known words.";
     return;
   }
-  out.textContent = "Searching... this may take a moment.";
+  out.textContent = "Searching...";
   try {
-    let result;
-    try {
-      result = await invoke("search_reorder", { words, force: false });
-    } catch (warnMsg) {
-      if (!confirm(`${warnMsg}\n\nContinue anyway?`)) {
-        out.textContent = "Cancelled.";
-        return;
-      }
-      result = await invoke("search_reorder", { words, force: true });
-    }
-    const lines = [`Checked ${result.checked.toLocaleString()} orderings.`, ""];
-    if (result.matches.length > 0) {
-      lines.push(`Found ${result.matches.length} candidate(s) passing the checksum:`);
-      for (const m of result.matches) lines.push(`  ${renderPhrase(m)}`);
-    } else {
+    const result = await runSearch("reorder", "orderings", "search_reorder", { words }, out);
+    if (!result) return;
+    const lines = describeResult(result, "orderings");
+    if (result.match_count === 0 && !result.cancelled) {
       lines.push("No valid orderings found among the words provided.");
     }
     out.textContent = lines.join("\n");
   } catch (e) {
-    out.innerHTML = `<span class="bad">${e}</span>`;
+    showError(out, e);
   }
 });

@@ -32,14 +32,28 @@
         <input type="text" id="missing-license-key" placeholder="License key (payload.signature)" />
         <span id="missing-license-status" class="license-status"></span>
       </div>
-      <button id="missing-run">Search</button>
+      <div class="actions">
+        <button id="missing-run">Search</button>
+        <button id="missing-cancel" class="secondary" hidden>Cancel</button>
+      </div>
+      <div id="missing-progress" class="progress" hidden>
+        <div class="progress-track"><div class="progress-fill"></div></div>
+        <div class="progress-text"></div>
+      </div>
       <div id="missing-output" class="output"></div>
     </section>
 
     <section id="tab-reorder" class="tab-panel">
-      <p>Enter the words you know, in any order. Practical only for a small unordered set.</p>
+      <p>Enter all of your words, in any order. A 12-word phrase takes a few minutes; longer phrases can take days.</p>
       <textarea id="reorder-input" rows="3" placeholder="e.g. about abandon abandon ..."></textarea>
-      <button id="reorder-run">Search orderings</button>
+      <div class="actions">
+        <button id="reorder-run">Search orderings</button>
+        <button id="reorder-cancel" class="secondary" hidden>Cancel</button>
+      </div>
+      <div id="reorder-progress" class="progress" hidden>
+        <div class="progress-track"><div class="progress-fill"></div></div>
+        <div class="progress-text"></div>
+      </div>
       <div id="reorder-output" class="output"></div>
     </section>
   </main>
