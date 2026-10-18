@@ -133,6 +133,28 @@ jobs:
           # Empty on pull requests: build only, upload nothing.
           releaseId: ${{ needs.create-release.outputs.id }}
 
+      - name: Show why the build failed
+        if: failure()
+        shell: bash
+        working-directory: gui
+        run: |
+          # Re-run the build to capture its output, then report the end of it
+          # as annotations (readable without access to the raw log).
+          npm run tauri build -- ${{ matrix.args }} > /tmp/build.log 2>&1 || true
+          sed 's/\x1b\[[0-9;]*m//g' /tmp/build.log | tail -n 150 > /tmp/tail.txt
+          "$(command -v python3 || command -v python)" - <<'PY'
+          lines = open("/tmp/tail.txt", errors="replace").read().splitlines()
+          chunks, cur = [], ""
+          for l in lines:
+              if len(cur) + len(l) + 1 > 3500 and cur:
+                  chunks.append(cur); cur = ""
+              cur += l + "\n"
+          chunks.append(cur)
+          for i, c in enumerate(chunks[-9:], 1):
+              enc = c.replace("%", "%25").replace("\r", "").replace("\n", "%0A")
+              print(f"::error title=Build output {i}::{enc}")
+          PY
+
       - name: List what was built
         shell: bash
         run: |
