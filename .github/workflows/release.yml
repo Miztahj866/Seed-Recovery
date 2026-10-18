@@ -168,6 +168,8 @@ jobs:
               \( -name '*.dmg' -o -name '*.app.tar.gz' \) -exec stat -f '%N (%z bytes)' {} \; | sed 's#.*/##' | tr '\n' '|' | sed 's/|/%0A/g')
           fi
           echo "::notice title=Built on ${{ matrix.name }}::$list"
+          # Bundles are unpacked into folders (AppDir, .app) during the build,
+          # so this also catches the tool hidden inside an installer.
           if find gui/src-tauri/target -path '*/release/bundle/*' -iname '*gen_license*' | grep -q .; then
             echo "::error::The seller-only gen_license tool was bundled. It must never ship."
             exit 1
