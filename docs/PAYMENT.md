@@ -83,7 +83,7 @@ Every time you get a sale notification:
 
 ```bash
 cd gui/src-tauri
-cargo run --bin gen_license -- issue <buyer-order-id-or-email-hash>
+cargo run --example gen_license -- issue <buyer-order-id-or-email-hash>
 ```
 
 Use whatever identifier from the sale notification makes sense — an order

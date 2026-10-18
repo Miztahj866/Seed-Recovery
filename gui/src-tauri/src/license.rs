@@ -11,7 +11,7 @@
 //!   - The APP only ever embeds the corresponding PUBLIC key (see
 //!     `PUBLIC_KEY_BYTES` below) — a public key can verify signatures but
 //!     cannot be used to create new ones.
-//!   - After a sale, the seller runs `cargo run --bin gen_license -- issue
+//!   - After a sale, the seller runs `cargo run --example gen_license -- issue
 //!     <some-id>` to produce a license key string, using the private key
 //!     that never leaves their machine.
 //!

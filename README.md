@@ -7,11 +7,23 @@ BIP39 seed phrases — a typo, a missing word, an unclear order.
 and never asks you to trust anyone with your keys.** Read the code. Run it
 offline. Verify the claims yourself — don't take our word for it.
 
+## Download
+
+**[Get the latest release](https://github.com/Miztahj866/Seed-Recovery/releases/latest)**:
+installers for Windows, macOS (Intel and Apple Silicon) and Linux, with
+SHA-256 checksums to check before running. They're built by GitHub Actions
+straight from this repository ([`release.yml`](.github/workflows/release.yml)).
+
+The installers aren't code-signed yet, so Windows and macOS will warn about
+an unknown publisher the first time. The release notes explain how to open
+it anyway, and how to check the file first.
+
 ## What this can do
 
 - ✅ Fix typos (fuzzy-matches misspelled words against the official BIP39 wordlist)
 - ✅ Brute-force 1–3 missing/forgotten words (using the BIP39 checksum to prune invalid guesses)
-- ✅ Search word order when you know the set of words but not the sequence (practical only for a handful of unknown positions — see warnings in the tool)
+- ✅ Search word order when you know the set of words but not the sequence (a full 12-word phrase takes minutes; longer phrases can take days)
+- ✅ Check candidates against a Bitcoin address you know is yours (desktop app), so you get *your* phrase instead of a list of phrases that merely pass the checksum. Supports addresses starting with `1`, `3`, `bc1q` and `bc1p`.
 
 ## What this CANNOT do
 
@@ -33,11 +45,12 @@ audited yet.
 Two interfaces exist:
 - **CLI** (`src/recover.py`, Python) — the original, fully tested implementation.
 - **Desktop GUI** (`gui/`, Tauri + Rust) — a Rust port of the same BIP39 logic,
-  with its own copy of the official test vectors. Compiled, tested, and
-  verified — `cargo test` passes 11/11 locally and in CI on Linux, macOS, and
-  Windows. Includes a free tier (typo fix, 1 missing word, word order) and a
-  paid tier (multi-word search) gated by an Ed25519-signed license key — see
-  `gui/BUILD.md` and `docs/LICENSING.md`.
+  with its own copy of the official test vectors, a multi-core search with
+  progress and cancel, and address checking. The full test suite (including
+  BIP84/BIP86 reference addresses) runs in CI on Linux, macOS and Windows.
+  Includes a free tier (typo fix, 1 missing word with address check, word
+  order) and a paid tier (multi-word search) gated by an Ed25519-signed
+  license key — see `gui/BUILD.md` and `docs/LICENSING.md`.
 
 ## How to verify this is trustworthy, yourself
 
@@ -111,6 +124,7 @@ The **desktop app** (`gui/`) has two tiers:
 | Fix typos | ✅ | ✅ |
 | Find 1 missing word | ✅ | ✅ |
 | Word-order search | ✅ | ✅ |
+| Check against your Bitcoin address | ✅ | ✅ |
 | Find 2+ missing words | — | ✅ |
 | Price | $0 | $25 one-time |
 

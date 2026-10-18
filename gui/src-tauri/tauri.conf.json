@@ -9,7 +9,7 @@
   },
   "package": {
     "productName": "Seed Recovery Tool",
-    "version": "0.1.0"
+    "version": "0.2.0"
   },
   "tauri": {
     "allowlist": {
@@ -27,6 +27,10 @@
         "icons/icon.ico"
       ],
       "resources": [],
+      "macOS": {
+        "signingIdentity": "-",
+        "minimumSystemVersion": "10.15"
+      },
       "shortDescription": "Local, offline BIP39 seed phrase recovery",
       "longDescription": "A local, offline, open-source tool for recovering partial or misremembered BIP39 seed phrases. Never transmits any phrase data over the network."
     },

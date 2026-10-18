@@ -1,21 +1,26 @@
 //! gen_license.rs — Seller-side tool for the license key system.
 //!
-//! This binary is NOT part of the shipped app. It's a tool you (the seller)
+//! This tool is NOT part of the shipped app. It's a tool you (the seller)
 //! run on your own machine to:
 //!   1. Generate a signing keypair (once, ever)
 //!   2. Issue individual license keys after each sale
+//!
+//! It lives in `examples/` rather than `src/bin/` on purpose: the Tauri
+//! bundler packages every binary in `src/bin/` into the installers, but
+//! never builds or ships examples. Run it from `gui/src-tauri`, where
+//! `signing_key.bin` is kept.
 //!
 //! The private key file this produces must NEVER be committed to git,
 //! shared, or shipped with the app. Only the PUBLIC key gets pasted into
 //! `src/license.rs`'s `PUBLIC_KEY_BYTES` constant.
 //!
 //! Usage:
-//!   cargo run --bin gen_license -- genkey
+//!   cargo run --example gen_license -- genkey
 //!       Generates a new keypair. Prints the public key bytes to paste into
 //!       license.rs, and saves the private key to ./signing_key.bin
 //!       (add this filename to .gitignore immediately if you haven't).
 //!
-//!   cargo run --bin gen_license -- issue <license_id>
+//!   cargo run --example gen_license -- issue <license_id>
 //!       Reads ./signing_key.bin and produces a license key string for the
 //!       given license_id (use an order ID, email hash, or any identifier
 //!       you want to associate with this sale). Prints the key to give to
@@ -69,7 +74,7 @@ fn cmd_genkey() {
 fn cmd_issue(license_id: &str) {
     let key_bytes = fs::read(KEY_FILE).unwrap_or_else(|_| {
         eprintln!(
-            "Error: {KEY_FILE} not found. Run 'cargo run --bin gen_license -- genkey' first."
+            "Error: {KEY_FILE} not found. Run 'cargo run --example gen_license -- genkey' first."
         );
         std::process::exit(1);
     });

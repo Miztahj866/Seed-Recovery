@@ -1,0 +1,230 @@
+# Builds the desktop app for Windows, macOS and Linux.
+#
+# - Run it from the Actions tab ("Release" -> "Run workflow") to build
+#   installers and attach them, with SHA-256 checksums, to a DRAFT GitHub
+#   Release named after the version in gui/src-tauri/tauri.conf.json.
+#   Nothing is public until you review the draft and press Publish.
+# - On pull requests that change this file it does a dry run: same tests
+#   and builds, nothing uploaded.
+#
+# Toolchain versions are pinned (rust-toolchain.toml, gui/.nvmrc, lock
+# files, fixed runner images) so the build environment is documented and
+# repeatable; see gui/BUILD.md.
+name: Release
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+      - ".github/RELEASE_NOTES.md"
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Tests before building
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install
+      - name: Install Linux GUI system dependencies
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list
+          sudo apt-get update -q
+          sudo apt-get install -y -q libwebkit2gtk-4.0-dev libappindicator3-dev librsvg2-dev patchelf libsoup2.4-dev libjavascriptcoregtk-4.0-dev
+      - name: Python reference test vectors
+        run: python3 tests/test_vectors.py
+      - name: Rust tests
+        working-directory: gui/src-tauri
+        run: cargo test --release --locked
+
+  create-release:
+    name: Create draft release
+    needs: test
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-22.04
+    outputs:
+      id: ${{ steps.draft.outputs.id }}
+      version: ${{ steps.draft.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          VERSION=$(jq -r .package.version gui/src-tauri/tauri.conf.json)
+          TAG="v$VERSION"
+          if gh api "repos/$REPO/releases/tags/$TAG" > /dev/null 2>&1; then
+            echo "::error::$TAG is already published. Raise the version in gui/src-tauri/tauri.conf.json (and Cargo.toml, package.json) first."
+            exit 1
+          fi
+          # Reuse an existing draft for this version (e.g. a re-run).
+          ID=$(gh api "repos/$REPO/releases?per_page=50" \
+                --jq "[.[] | select(.draft and .tag_name == \"$TAG\")][0].id // empty")
+          if [ -z "$ID" ]; then
+            ID=$(gh api -X POST "repos/$REPO/releases" \
+                  -f tag_name="$TAG" -f target_commitish="$GITHUB_SHA" \
+                  -f name="Seed Recovery Tool $TAG" -F draft=true \
+                  -f body="Draft: installers are uploading. Release notes and checksums are added when all builds finish." \
+                  --jq .id)
+          fi
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build (${{ matrix.name }})
+    needs: [test, create-release]
+    # Runs for manual releases and for pull-request dry runs (where
+    # create-release is skipped).
+    if: ${{ !cancelled() && needs.test.result == 'success' && needs.create-release.result != 'failure' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-2022
+            args: ""
+          - name: macOS (Intel + Apple Silicon)
+            os: macos-14
+            args: "--target universal-apple-darwin"
+          - name: Linux
+            os: ubuntu-22.04
+            args: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: gui/.nvmrc
+
+      - name: Install pinned Rust toolchain
+        shell: bash
+        run: rustup toolchain install
+
+      - name: Add macOS targets for a universal build
+        if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Install Linux GUI system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list
+          sudo apt-get update -q
+          sudo apt-get install -y -q libwebkit2gtk-4.0-dev libappindicator3-dev librsvg2-dev patchelf libsoup2.4-dev libjavascriptcoregtk-4.0-dev
+
+      - name: Install frontend tooling (exact lockfile versions)
+        working-directory: gui
+        run: npm ci
+
+      - name: Build installers (and attach them to a draft release when run manually)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: gui
+          tauriScript: npm run tauri
+          args: ${{ matrix.args }}
+          # Empty on pull requests: build only, upload nothing.
+          releaseId: ${{ needs.create-release.outputs.id }}
+
+      - name: Show why the build failed
+        if: failure()
+        shell: bash
+        working-directory: gui
+        run: |
+          # Re-run the build to capture its output, then report the end of it
+          # as annotations (readable without access to the raw log).
+          npm run tauri build -- ${{ matrix.args }} > /tmp/build.log 2>&1 || true
+          sed 's/\x1b\[[0-9;]*m//g' /tmp/build.log | tail -n 150 > /tmp/tail.txt
+          "$(command -v python3 || command -v python)" - <<'PY'
+          lines = open("/tmp/tail.txt", errors="replace").read().splitlines()
+          chunks, cur = [], ""
+          for l in lines:
+              if len(cur) + len(l) + 1 > 3500 and cur:
+                  chunks.append(cur); cur = ""
+              cur += l + "\n"
+          chunks.append(cur)
+          for i, c in enumerate(chunks[-9:], 1):
+              enc = c.replace("%", "%25").replace("\r", "").replace("\n", "%0A")
+              print(f"::error title=Build output {i}::{enc}")
+          PY
+
+      - name: List what was built
+        shell: bash
+        run: |
+          echo "Bundles built on ${{ matrix.name }}:"
+          list=$(find gui/src-tauri/target -path '*/release/bundle/*' -type f \
+            \( -name '*.exe' -o -name '*.msi' -o -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.AppImage' -o -name '*.deb' \) \
+            -printf '%f (%s bytes)%%0A' 2>/dev/null || true)
+          if [ -z "$list" ]; then
+            # macOS find has no -printf
+            list=$(find gui/src-tauri/target -path '*/release/bundle/*' -type f \
+              \( -name '*.dmg' -o -name '*.app.tar.gz' \) -exec stat -f '%N (%z bytes)' {} \; | sed 's#.*/##' | tr '\n' '|' | sed 's/|/%0A/g')
+          fi
+          echo "::notice title=Built on ${{ matrix.name }}::$list"
+          # Bundles are unpacked into folders (AppDir, .app) during the build,
+          # so this also catches the tool hidden inside an installer.
+          if find gui/src-tauri/target -path '*/release/bundle/*' -iname '*gen_license*' | grep -q .; then
+            echo "::error::The seller-only gen_license tool was bundled. It must never ship."
+            exit 1
+          fi
+
+  publish-checksums:
+    name: Checksums and release notes
+    needs: [create-release, build]
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add SHA256SUMS.txt and the release notes to the draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.create-release.outputs.version }}"
+          TAG="v$VERSION"
+          ID="${{ needs.create-release.outputs.id }}"
+
+          mkdir dist && cd dist
+          gh api "repos/$REPO/releases/$ID/assets?per_page=100" --jq '.[] | "\(.id) \(.name)"' |
+          while read -r aid name; do
+            [ "$name" = "SHA256SUMS.txt" ] && continue
+            gh api -H "Accept: application/octet-stream" "repos/$REPO/releases/assets/$aid" > "$name"
+          done
+          sha256sum -- * | sort -k2 > ../SHA256SUMS.txt
+          cd ..
+          cat SHA256SUMS.txt
+
+          # Replace any earlier checksum file, then upload the new one.
+          old=$(gh api "repos/$REPO/releases/$ID/assets?per_page=100" --jq '.[] | select(.name=="SHA256SUMS.txt") | .id')
+          [ -n "$old" ] && gh api -X DELETE "repos/$REPO/releases/assets/$old"
+          gh api -X POST -H "Content-Type: text/plain" \
+            "https://uploads.github.com/repos/$REPO/releases/$ID/assets?name=SHA256SUMS.txt" \
+            --input SHA256SUMS.txt > /dev/null
+
+          {
+            sed "s/__VERSION__/$VERSION/g" .github/RELEASE_NOTES.md
+            echo
+            echo '## SHA-256 checksums'
+            echo
+            echo '```'
+            cat SHA256SUMS.txt
+            echo '```'
+            echo
+            echo '## Build environment'
+            echo
+            echo "- Built by GitHub Actions from commit \`$GITHUB_SHA\`"
+            echo "  ([workflow run]($GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID))"
+            echo "- Rust: $(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml) (rust-toolchain.toml)"
+            echo "- Node: $(cat gui/.nvmrc) (gui/.nvmrc), Tauri CLI from gui/package-lock.json"
+            echo "- Runners: windows-2022, macos-14 (universal build), ubuntu-22.04"
+          } > notes.md
+          gh api -X PATCH "repos/$REPO/releases/$ID" -F body=@notes.md > /dev/null
+          echo "::notice title=Draft ready::Review and publish $TAG on the Releases page."

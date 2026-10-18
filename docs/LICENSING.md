@@ -12,7 +12,7 @@ app's source code or binary.
 
 ```bash
 cd gui/src-tauri
-cargo run --bin gen_license -- genkey
+cargo run --example gen_license -- genkey
 ```
 
 This prints something like:
@@ -42,7 +42,7 @@ const PUBLIC_KEY_BYTES: [u8; 32] = [12, 45, 200, ...];
 
 ```bash
 cd gui/src-tauri
-cargo run --bin gen_license -- issue <some-identifier>
+cargo run --example gen_license -- issue <some-identifier>
 ```
 
 Use any identifier you want for `<some-identifier>` — an order number, a
@@ -95,8 +95,8 @@ revisit if the economics ever change enough to justify a different model.
 
 ```bash
 cd gui/src-tauri
-cargo run --bin gen_license -- genkey    # only if you haven't already
-cargo run --bin gen_license -- issue test-license-1
+cargo run --example gen_license -- genkey    # only if you haven't already
+cargo run --example gen_license -- issue test-license-1
 ```
 
 Copy the printed key, run the app (`npm run dev` from `gui/`), enter a
