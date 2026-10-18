@@ -50,6 +50,20 @@ Because this tool handles seed phrase fragments, the security bar is not just
   Tauri GUI is the safer choice for anything involving real, sensitive
   phrases** — the CLI is best treated as a spec-correctness reference and
   quick sanity-checker, not the hardened path.
+- ⚠️ **Address checking creates private keys in memory.** To confirm a
+  candidate phrase against the user's address, the GUI derives the
+  account-level private key for each candidate (BIP32, path
+  m/purpose'/0'/account'), then derives addresses from the public key only.
+  These keys never leave the process and are never shown, logged or sent to
+  the window: only the matching phrase and its derivation path are. The
+  `bitcoin` crate's key types are not zeroized on drop, so the same
+  "partial memory safety" gap above applies to them.
+- ✅ **Key math comes from established libraries, not custom code.**
+  Address checking uses the `bitcoin` crate (rust-bitcoin), which wraps
+  libsecp256k1, the elliptic-curve library used by Bitcoin Core. Exact
+  versions are pinned in `gui/src-tauri/Cargo.lock`. Its derivation is
+  checked against the published BIP84 and BIP86 test vectors (see the
+  tests in `gui/src-tauri/src/address.rs`).
 - ❌ **No independent third-party security audit has been performed yet.**
   This is a solo/early-stage project. Do not treat the absence of a public
   audit report as evidence of safety — treat it as an open item.

@@ -32,6 +32,20 @@ function showError(out, message) {
   out.replaceChildren(span);
 }
 
+// Show lines of text, coloring lines that start with ✓ (good) or ✗ (bad).
+// Builds text nodes only, never HTML.
+function renderLines(out, lines) {
+  out.replaceChildren(
+    ...lines.flatMap((l, i) => {
+      const node = document.createElement("span");
+      if (l.startsWith("✓")) node.className = "good";
+      else if (l.startsWith("✗")) node.className = "bad";
+      node.textContent = l;
+      return i < lines.length - 1 ? [node, "\n"] : [node];
+    })
+  );
+}
+
 function formatDuration(seconds) {
   if (!isFinite(seconds)) return "unknown";
   if (seconds < 1) return "under a second";
@@ -234,17 +248,7 @@ document.getElementById("fix-run").addEventListener("click", async () => {
         ? "✓ This phrase PASSES the BIP39 checksum."
         : "✗ This phrase does NOT pass the checksum."
     );
-    // Build the output as text nodes: the suggestions echo back what the
-    // user typed, so none of it goes through innerHTML.
-    out.replaceChildren(
-      ...lines.flatMap((l, i) => {
-        const node = document.createElement("span");
-        if (l.startsWith("✓")) node.className = "good";
-        else if (l.startsWith("✗")) node.className = "bad";
-        node.textContent = l;
-        return i < lines.length - 1 ? [node, "\n"] : [node];
-      })
-    );
+    renderLines(out, lines);
   } catch (e) {
     showError(out, e);
   }
@@ -297,6 +301,83 @@ missingLicenseKey.addEventListener("input", () => {
   }, 300);
 });
 
+// --- Known address (optional) ---
+const missingAddress = document.getElementById("missing-address");
+const missingAddressStatus = document.getElementById("missing-address-status");
+const missingAddressExtra = document.getElementById("missing-address-extra");
+const ADDRESS_HINT = missingAddressStatus.textContent;
+
+let addressCheckTimeout = null;
+missingAddress.addEventListener("input", () => {
+  clearTimeout(addressCheckTimeout);
+  const value = missingAddress.value.trim();
+  missingAddressExtra.hidden = value === "";
+  if (!value) {
+    missingAddressStatus.textContent = ADDRESS_HINT;
+    missingAddressStatus.className = "hint";
+    return;
+  }
+  addressCheckTimeout = setTimeout(async () => {
+    try {
+      const info = await invoke("check_address", { address: value });
+      missingAddressStatus.textContent = `✓ ${info.label}`;
+      missingAddressStatus.className = "hint good";
+    } catch (e) {
+      missingAddressStatus.textContent = String(e);
+      missingAddressStatus.className = "hint bad";
+    }
+  }, 300);
+});
+
+function addressOptions() {
+  const address = missingAddress.value.trim();
+  if (!address) return null;
+  return {
+    address,
+    passphrase: document.getElementById("missing-passphrase").value,
+    accounts: Number(document.getElementById("missing-accounts").value) || 1,
+    addresses: Number(document.getElementById("missing-addresses").value) || 10,
+    change: document.getElementById("missing-change").checked,
+  };
+}
+
+// Result text when the search checked candidates against an address.
+function describeAddressResult(result) {
+  const time = formatDuration(result.elapsed_ms / 1000);
+  const tested = `${result.match_count.toLocaleString()} possible phrase(s)`;
+  if (result.found) {
+    return [
+      "✓ Found your phrase.",
+      "",
+      `  ${renderPhrase(result.found.words)}`,
+      "",
+      `It owns your address (wallet path ${result.found.path}). Found in ${time}.`,
+      "",
+      "Next: write it down carefully. Then move your funds to a new wallet with",
+      "a brand-new phrase, since this one has now been typed into a computer.",
+    ];
+  }
+  if (result.cancelled) {
+    const pct = result.total > 0 ? (result.checked / result.total) * 100 : 0;
+    return [
+      `Stopped after ${pct < 1 ? pct.toFixed(2) : pct.toFixed(0)}% of the search, in ${time}.`,
+      `Tested ${tested} against your address. None matched so far.`,
+    ];
+  }
+  return [
+    "✗ No match with these settings.",
+    "",
+    `Tested all ${tested} that pass the checksum against your address, in ${time}.`,
+    "",
+    "Things to check:",
+    "  - Is the address copied exactly, and from this wallet?",
+    "  - Did you set an extra password? It must be typed exactly.",
+    "  - Are the '?' marks in the right places, and the other words right?",
+    "  - Your address may be further in: raise the numbers under",
+    "    Advanced search settings and try again.",
+  ];
+}
+
 document.getElementById("missing-run").addEventListener("click", async () => {
   const out = document.getElementById("missing-output");
   const words = splitWords(missingInput.value);
@@ -307,8 +388,18 @@ document.getElementById("missing-run").addEventListener("click", async () => {
   const licenseKey = missingLicenseKey.value.trim() || null;
   out.textContent = "Searching...";
   try {
-    const result = await runSearch("missing", "combinations", "search_missing", { words, licenseKey }, out);
+    const result = await runSearch(
+      "missing",
+      "combinations",
+      "search_missing",
+      { words, licenseKey, addressOptions: addressOptions() },
+      out
+    );
     if (!result) return;
+    if (result.address_checked) {
+      renderLines(out, describeAddressResult(result));
+      return;
+    }
     const lines = describeResult(result, "combinations");
     if (result.match_count === 0 && !result.cancelled) {
       lines.push("No valid combinations found. Double-check the known words for typos.");
