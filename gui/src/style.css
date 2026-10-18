@@ -129,6 +129,9 @@ button.secondary {
 .output .bad { color: var(--bad); }
 .output .warn { color: var(--warn); }
 
+.ask p { margin: 0 0 6px; white-space: normal; }
+.ask .actions button { margin-top: 4px; }
+
 .license-row {
   display: flex;
   align-items: center;

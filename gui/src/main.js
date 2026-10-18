@@ -115,6 +115,35 @@ function startProgress(prefix, unit) {
   });
 });
 
+// Asks a yes/no question inside the output box and resolves to true or
+// false when the user clicks. Used instead of window.confirm(), which
+// Tauri replaces with a version that doesn't wait for an answer (so the
+// search would start without the user ever seeing the warning).
+function askToContinue(out, question) {
+  return new Promise((resolve) => {
+    const box = document.createElement("div");
+    box.className = "ask";
+    const text = document.createElement("p");
+    text.className = "warn";
+    text.textContent = question;
+    const hint = document.createElement("p");
+    hint.textContent = "If you start it, you can press Cancel at any time.";
+    const row = document.createElement("div");
+    row.className = "actions";
+    const yes = document.createElement("button");
+    yes.textContent = "Continue";
+    const no = document.createElement("button");
+    no.className = "secondary";
+    no.textContent = "Don't run";
+    row.append(yes, no);
+    box.append(text, hint, row);
+    out.replaceChildren(box);
+    no.focus();
+    yes.addEventListener("click", () => resolve(true), { once: true });
+    no.addEventListener("click", () => resolve(false), { once: true });
+  });
+}
+
 // Runs a search command. If the backend first answers with a "this will
 // take a long time" warning, asks the user before running it for real.
 async function runSearch(prefix, unit, command, args, out) {
@@ -126,11 +155,18 @@ async function runSearch(prefix, unit, command, args, out) {
       const msg = String(warnMsg);
       if (!msg.includes("Pass force=true")) throw warnMsg;
       progress.stop();
-      const question = msg.replace(" Pass force=true to proceed anyway.", "");
-      if (!confirm(`${question}\n\nContinue anyway? You can cancel at any time.`)) {
-        out.textContent = "Cancelled.";
+      const question = msg
+        .replace(" Pass force=true to proceed anyway.", "")
+        .replace(/\d{5,}/g, (n) => formatCount(Number(n)));
+      const runBtn = document.getElementById(`${prefix}-run`);
+      runBtn.disabled = true;
+      const go = await askToContinue(out, question);
+      runBtn.disabled = false;
+      if (!go) {
+        out.textContent = "Not started.";
         return null;
       }
+      out.textContent = "Searching...";
       progress = startProgress(prefix, unit);
       return await invoke(command, { ...args, force: true });
     }
