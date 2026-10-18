@@ -165,3 +165,37 @@ footer {
   color: var(--muted);
   font-size: 0.8rem;
 }
+
+.field { margin-top: 12px; display: flex; flex-direction: column; gap: 4px; }
+
+.field label { font-size: 0.9rem; }
+
+.muted { color: var(--muted); font-weight: normal; }
+
+.field input[type="text"],
+.field input[type="password"],
+.advanced-grid input[type="number"] {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid #2a2e3a;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+}
+
+.hint { color: var(--muted); font-size: 0.8rem; margin: 0; }
+.hint.good { color: var(--good); }
+.hint.bad { color: var(--bad); }
+
+.advanced { margin-top: 12px; font-size: 0.9rem; }
+.advanced summary { cursor: pointer; color: var(--muted); }
+.advanced-grid {
+  display: grid;
+  grid-template-columns: max-content 120px;
+  justify-content: start;
+  gap: 8px 12px;
+  align-items: center;
+  margin: 10px 0 6px;
+}
+.advanced-grid .check { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; }

@@ -1,6 +1,7 @@
 // Prevents an extra console window from appearing on Windows in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod address;
 mod bip39;
 mod license;
 mod search;
@@ -12,6 +13,9 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 
 const MAX_BLANKS_WITHOUT_WARNING: usize = 3;
+// With an address check, every checksum-valid phrase costs ~1-2 ms more.
+// Two missing words on 12 (~262,000 checks) take minutes; three take days.
+const MAX_BLANKS_WITH_ADDRESS_WITHOUT_WARNING: usize = 2;
 // 12! = 479 million orderings now takes minutes with the multi-core search
 // (see search.rs). 15! = 1.3 trillion would take days, so warn above 12.
 const MAX_REORDER_WITHOUT_WARNING: usize = 12;
@@ -69,6 +73,16 @@ struct SearchResult {
     cancelled: bool,
     warning: Option<String>,
     elapsed_ms: u64,
+    /// Address mode: the phrase that owns the address, if one was found.
+    found: Option<FoundPhrase>,
+    /// Address mode: true when an address was checked at all.
+    address_checked: bool,
+}
+
+#[derive(Serialize)]
+struct FoundPhrase {
+    words: Vec<String>,
+    path: String,
 }
 
 /// Progress update sent to the window as a "search-progress" event.
@@ -105,6 +119,7 @@ async fn run_search<S>(
     control: &SearchControl,
     total: f64,
     warning: Option<String>,
+    address_checked: bool,
     job: S,
 ) -> Result<SearchResult, String>
 where
@@ -154,12 +169,30 @@ where
             .collect(),
         warning,
         elapsed_ms: elapsed.as_millis() as u64,
+        address_checked,
+        found: outcome.found.map(|f| FoundPhrase {
+            words: search::indices_to_words(&f.phrase),
+            path: f.path,
+        }),
     })
+}
+
+/// Optional settings for checking candidates against a known address.
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct AddressOptions {
+    address: Option<String>,
+    passphrase: Option<String>,
+    accounts: Option<u32>,
+    addresses: Option<u32>,
+    change: Option<bool>,
 }
 
 /// words: the phrase with unknown positions marked as "?".
 /// license_key: optional. Required (and must validate) if more than
 /// FREE_TIER_MAX_BLANKS words are missing.
+/// address_options: optional. With an address, only the phrase that owns
+/// it is returned, instead of every phrase that passes the checksum.
 #[tauri::command]
 async fn search_missing(
     window: tauri::Window,
@@ -167,6 +200,7 @@ async fn search_missing(
     words: Vec<String>,
     force: bool,
     license_key: Option<String>,
+    address_options: Option<AddressOptions>,
 ) -> Result<SearchResult, String> {
     let template = search::parse_template(&words)?;
     let n_blanks = template.iter().filter(|w| w.is_none()).count();
@@ -189,9 +223,46 @@ async fn search_missing(
         }
     }
 
+    // Address check: parse everything up front so mistakes show before
+    // a long search starts.
+    let opts = address_options.unwrap_or_default();
+    let checker = match opts.address.as_deref().map(str::trim) {
+        Some(a) if !a.is_empty() => {
+            let target = address::parse_address(a)?;
+            let window_opts = address::Window {
+                accounts: opts.accounts.unwrap_or(1).clamp(1, 20),
+                addresses: opts.addresses.unwrap_or(10).clamp(1, 1000),
+                change: opts.change.unwrap_or(true),
+            };
+            Some(address::Checker::new(
+                target,
+                window_opts,
+                opts.passphrase.unwrap_or_default(),
+            ))
+        }
+        _ => None,
+    };
+
     let space = 2048u128.pow(n_blanks as u32);
     let mut warning = None;
-    if n_blanks > MAX_BLANKS_WITHOUT_WARNING {
+    if let Some(c) = &checker {
+        if n_blanks > MAX_BLANKS_WITH_ADDRESS_WITHOUT_WARNING {
+            // About 1 in 2^(words/3) candidates pass the checksum, and each
+            // of those gets the slow address check.
+            let checks = space >> (words.len() / 3);
+            let msg = format!(
+                "{} missing words with an address check means about {} phrases to test \
+                 against your address, {} addresses each. This may take days.",
+                n_blanks,
+                checks,
+                c.window().addresses_per_phrase()
+            );
+            if !force {
+                return Err(format!("{} Pass force=true to proceed anyway.", msg));
+            }
+            warning = Some(msg);
+        }
+    } else if n_blanks > MAX_BLANKS_WITHOUT_WARNING {
         let msg = format!(
             "{} missing words means {} combinations to check. \
              This may take a very long time.",
@@ -203,10 +274,30 @@ async fn search_missing(
         warning = Some(msg);
     }
 
-    run_search(window, &control, space as f64, warning, move |cancel, report| {
-        search::search_missing(&template, search::DEFAULT_MATCH_CAP, cancel, report)
+    let address_checked = checker.is_some();
+    run_search(window, &control, space as f64, warning, address_checked, move |cancel, report| {
+        match checker {
+            Some(c) => search::search_missing_verified(&template, cancel, report, |cand: &[u16]| {
+                c.check(&search::indices_to_words(cand))
+            }),
+            None => search::search_missing(&template, search::DEFAULT_MATCH_CAP, cancel, report),
+        }
     })
     .await
+}
+
+#[derive(Serialize)]
+struct AddressInfo {
+    label: String,
+}
+
+/// Lets the window say which kind of address the user typed, or what's
+/// wrong with it, before they start a search.
+#[tauri::command]
+fn check_address(address: String) -> Result<AddressInfo, String> {
+    address::parse_address(&address).map(|t| AddressInfo {
+        label: t.kind.label().to_string(),
+    })
 }
 
 #[tauri::command]
@@ -239,7 +330,7 @@ async fn search_reorder(
         warning = Some(msg);
     }
 
-    run_search(window, &control, orderings as f64, warning, move |cancel, report| {
+    run_search(window, &control, orderings as f64, warning, false, move |cancel, report| {
         search::search_reorder(&indices, search::DEFAULT_MATCH_CAP, cancel, report)
     })
     .await
@@ -299,6 +390,7 @@ fn main() {
             search_missing,
             search_reorder,
             cancel_search,
+            check_address,
             validate_mnemonic,
             validate_license,
             derive_seed_hex

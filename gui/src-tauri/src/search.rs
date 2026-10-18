@@ -47,7 +47,21 @@ pub struct Outcome {
     /// Up to `cap` matching phrases, as wordlist indices, sorted.
     pub matches: Vec<Vec<u16>>,
     pub cancelled: bool,
+    /// Address mode only: the phrase that owns the address, and where.
+    pub found: Option<Found>,
 }
+
+/// A phrase confirmed against the user's address.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Found {
+    pub phrase: Vec<u16>,
+    /// The derivation path of the matching address, e.g. m/84'/0'/0'/0/3.
+    pub path: String,
+}
+
+/// How many candidates a worker checks between cancel checks when every
+/// checksum-valid candidate also gets an address check (~1 ms each).
+const BATCH_VERIFY: u64 = 256;
 
 impl Outcome {
     pub fn truncated(&self) -> bool {
@@ -165,6 +179,10 @@ struct Tally<'a, F: Fn(u64) + Sync> {
     checked: AtomicU64,
     match_count: AtomicU64,
     matches: Mutex<Vec<Vec<u16>>>,
+    found: Mutex<Option<Found>>,
+    /// Set when a match is found, so every worker stops early. Kept apart
+    /// from `cancel` so the result doesn't report a user cancel.
+    stop: AtomicBool,
 }
 
 impl<'a, F: Fn(u64) + Sync> Tally<'a, F> {
@@ -176,11 +194,27 @@ impl<'a, F: Fn(u64) + Sync> Tally<'a, F> {
             checked: AtomicU64::new(0),
             match_count: AtomicU64::new(0),
             matches: Mutex::new(Vec::new()),
+            found: Mutex::new(None),
+            stop: AtomicBool::new(false),
         }
     }
 
+    /// True when workers should stop: the user cancelled, or a match was
+    /// already found.
     fn cancelled(&self) -> bool {
-        self.cancel.load(Ordering::Relaxed)
+        self.cancel.load(Ordering::Relaxed) || self.stop.load(Ordering::Relaxed)
+    }
+
+    fn count_match(&self) {
+        self.match_count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn record_found(&self, candidate: &[u16], path: String) {
+        let mut f = self.found.lock().unwrap();
+        if f.is_none() {
+            *f = Some(Found { phrase: candidate.to_vec(), path });
+        }
+        self.stop.store(true, Ordering::Relaxed);
     }
 
     fn record(&self, candidate: &[u16]) {
@@ -209,6 +243,7 @@ impl<'a, F: Fn(u64) + Sync> Tally<'a, F> {
             match_count: self.match_count.into_inner(),
             matches,
             cancelled: self.cancel.load(Ordering::Relaxed),
+            found: self.found.into_inner().unwrap(),
         }
     }
 }
@@ -248,6 +283,49 @@ pub fn search_missing<F>(template: &[Option<u16>], cap: usize, cancel: &AtomicBo
 where
     F: Fn(u64) + Sync,
 {
+    run_missing(template, cap, cancel, progress, None::<fn(&[u16]) -> Option<String>>)
+}
+
+/// Like `search_missing`, but every phrase that passes the checksum is also
+/// handed to `verify` (in practice: "does this phrase own the user's
+/// address?"). `verify` returns the matching derivation path, or None.
+/// The search stops at the first match and returns it in `found`.
+/// `match_count` still counts checksum-valid phrases; `matches` stays empty.
+pub fn search_missing_verified<F, V>(
+    template: &[Option<u16>],
+    cancel: &AtomicBool,
+    progress: F,
+    verify: V,
+) -> Outcome
+where
+    F: Fn(u64) + Sync,
+    V: Fn(&[u16]) -> Option<String> + Sync,
+{
+    run_missing(template, 0, cancel, progress, Some(verify))
+}
+
+fn run_missing<F, V>(
+    template: &[Option<u16>],
+    cap: usize,
+    cancel: &AtomicBool,
+    progress: F,
+    verify: Option<V>,
+) -> Outcome
+where
+    F: Fn(u64) + Sync,
+    V: Fn(&[u16]) -> Option<String> + Sync,
+{
+    let batch = if verify.is_some() { BATCH_VERIFY } else { BATCH };
+    // One place that decides what a checksum-valid candidate means.
+    let accept = |cand: &[u16], tally: &Tally<'_, F>| match &verify {
+        None => tally.record(cand),
+        Some(v) => {
+            tally.count_match();
+            if let Some(path) = v(cand) {
+                tally.record_found(cand, path);
+            }
+        }
+    };
     let blanks: Vec<usize> = template
         .iter()
         .enumerate()
@@ -261,7 +339,7 @@ where
     if blanks.is_empty() {
         tally.add_checked(1);
         if checksum_ok(&base) {
-            tally.record(&base);
+            accept(&base, &tally);
         }
         return tally.finish(total);
     }
@@ -283,9 +361,13 @@ where
         loop {
             local += 1;
             if checksum_ok(&cand) {
-                tally.record(&cand);
+                accept(&cand, &tally);
+                if tally.stop.load(Ordering::Relaxed) {
+                    tally.add_checked(local);
+                    return;
+                }
             }
-            if local == BATCH {
+            if local == batch {
                 tally.add_checked(local);
                 local = 0;
                 if tally.cancelled() {
@@ -590,5 +672,77 @@ mod tests {
         for m in &out.matches {
             assert!(bip39::is_valid_mnemonic(&indices_to_words(m)));
         }
+    }
+
+    // --- Address-check mode (search_missing_verified) ---
+    // These use a stand-in for the real address check, so they test the
+    // search mechanics: the hook sees every checksum-valid phrase, the
+    // search stops on the first match, and "not found" covers everything.
+
+    fn template_with_blanks(phrase: &str, blanks: &[usize]) -> Vec<Option<u16>> {
+        let mut w = s(phrase);
+        for &i in blanks {
+            w[i] = "?".into();
+        }
+        parse_template(&w).unwrap()
+    }
+
+    #[test]
+    fn verified_search_finds_the_phrase_the_check_accepts() {
+        let original = idx(LEGAL12);
+        let t = template_with_blanks(LEGAL12, &[4]);
+        let out = search_missing_verified(&t, &no_cancel(), |_| {}, |cand: &[u16]| {
+            (cand == original.as_slice()).then(|| "m/84'/0'/0'/0/7".to_string())
+        });
+        let found = out.found.expect("should find the original phrase");
+        assert_eq!(found.phrase, original);
+        assert_eq!(found.path, "m/84'/0'/0'/0/7");
+        assert!(!out.cancelled, "a match must not be reported as a user cancel");
+        assert!(out.matches.is_empty());
+    }
+
+    #[test]
+    fn verified_search_checks_every_valid_phrase_when_nothing_matches() {
+        let t = template_with_blanks(ABOUT, &[2]);
+        let seen = AtomicU64::new(0);
+        let out = search_missing_verified(&t, &no_cancel(), |_| {}, |cand: &[u16]| {
+            assert!(checksum_ok(cand), "only checksum-valid phrases reach the check");
+            seen.fetch_add(1, Ordering::Relaxed);
+            None
+        });
+        assert!(out.found.is_none());
+        assert_eq!(out.checked, 2048);
+        assert_eq!(seen.load(Ordering::Relaxed), out.match_count);
+        let plain = search_missing(&t, DEFAULT_MATCH_CAP, &no_cancel(), |_| {});
+        assert_eq!(out.match_count, plain.match_count);
+    }
+
+    #[test]
+    fn verified_search_stops_early_after_a_match() {
+        // ABOUT's first two words are "abandon" (index 0), so the original
+        // comes up almost immediately in a 4.2 million candidate space.
+        let original = idx(ABOUT);
+        let t = template_with_blanks(ABOUT, &[0, 1]);
+        let out = search_missing_verified(&t, &no_cancel(), |_| {}, |cand: &[u16]| {
+            (cand == original.as_slice()).then(|| "m/0".to_string())
+        });
+        assert_eq!(out.found.map(|f| f.phrase), Some(original));
+        assert!(out.checked < 1_000_000, "kept going after the match: {}", out.checked);
+        assert!(!out.cancelled);
+    }
+
+    #[test]
+    fn verified_search_can_be_cancelled() {
+        let t = template_with_blanks(ZOO24, &[1, 4, 9]);
+        let cancel = AtomicBool::new(false);
+        let out = search_missing_verified(
+            &t,
+            &cancel,
+            |_| cancel.store(true, Ordering::Relaxed),
+            |_: &[u16]| None,
+        );
+        assert!(out.cancelled);
+        assert!(out.found.is_none());
+        assert!(out.checked < 50_000_000, "{}", out.checked);
     }
 }

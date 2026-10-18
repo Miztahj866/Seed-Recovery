@@ -23,6 +23,9 @@ zeroize = { version = "1.7", features = ["derive"] }
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 rand = "0.8"
 base64 = "0.21"
+# Bitcoin key derivation and address handling (BIP32/44/49/84/86).
+# Wraps libsecp256k1, the elliptic-curve library used by Bitcoin Core.
+bitcoin = "0.32"
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]

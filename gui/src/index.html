@@ -32,6 +32,29 @@
         <input type="text" id="missing-license-key" placeholder="License key (payload.signature)" />
         <span id="missing-license-status" class="license-status"></span>
       </div>
+      <div class="field">
+        <label for="missing-address">Known address <span class="muted">(optional, recommended)</span></label>
+        <input type="text" id="missing-address" placeholder="An address from this wallet, e.g. bc1q…" autocomplete="off" spellcheck="false" />
+        <div id="missing-address-status" class="hint">With an address, the app finds the one phrase that's yours, instead of a list of possible phrases.</div>
+      </div>
+      <div id="missing-address-extra" hidden>
+        <div class="field">
+          <label for="missing-passphrase">Extra password <span class="muted">(only if you set one)</span></label>
+          <input type="password" id="missing-passphrase" autocomplete="off" />
+          <div class="hint">Also called a passphrase or "25th word". Leave this blank if you never set one.</div>
+        </div>
+        <details class="advanced">
+          <summary>Advanced search settings</summary>
+          <div class="advanced-grid">
+            <label for="missing-accounts">Accounts to check</label>
+            <input type="number" id="missing-accounts" min="1" max="20" value="1" />
+            <label for="missing-addresses">Addresses per account</label>
+            <input type="number" id="missing-addresses" min="1" max="1000" value="10" />
+            <label class="check" for="missing-change"><input type="checkbox" id="missing-change" checked /> Include change addresses</label>
+          </div>
+          <p class="hint">Raise these if your address might be further into your wallet. Each step makes the search slower.</p>
+        </details>
+      </div>
       <div class="actions">
         <button id="missing-run">Search</button>
         <button id="missing-cancel" class="secondary" hidden>Cancel</button>
