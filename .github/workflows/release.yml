@@ -226,5 +226,12 @@ jobs:
             echo "- Node: $(cat gui/.nvmrc) (gui/.nvmrc), Tauri CLI from gui/package-lock.json"
             echo "- Runners: windows-2022, macos-14 (universal build), ubuntu-22.04"
           } > notes.md
-          gh api -X PATCH "repos/$REPO/releases/$ID" -F body=@notes.md > /dev/null
+          # Set the tag again with the notes: the v0.2.0 draft lost its tag
+          # (it showed as "untagged-...") somewhere between creation and here.
+          gh api -X PATCH "repos/$REPO/releases/$ID" -f tag_name="$TAG" \
+            -f target_commitish="$GITHUB_SHA" -F body=@notes.md > /dev/null
+          tag_now=$(gh api "repos/$REPO/releases/$ID" --jq .tag_name)
+          if [ "$tag_now" != "$TAG" ]; then
+            echo "::warning title=Set the tag when publishing::The draft shows tag '$tag_now'. In the draft's edit page, choose 'Create new tag: $TAG on publish'."
+          fi
           echo "::notice title=Draft ready::Review and publish $TAG on the Releases page."
