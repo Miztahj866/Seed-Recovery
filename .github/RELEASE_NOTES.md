@@ -2,10 +2,14 @@ Offline recovery for a BIP39 seed phrase with a missing, misspelled or out-of-or
 
 ## What's new in v__VERSION__
 
-- **Check against your wallet address.** Enter one address from the wallet and the app finds *the* phrase that owns it, not a list of possibilities. Works with Bitcoin addresses starting with `1`, `3`, `bc1q` and `bc1p`. Free for one missing word.
-- **Much faster searches** that use every core of your computer, with a progress bar, time left, and a Cancel button.
-- **macOS and Linux builds**, alongside Windows.
-- Clearer messages for typos and wrong word counts, and a confirmation before very long searches.
+- **Ethereum addresses.** Paste a `0x…` address (MetaMask, Trezor, Ledger and most other wallets) and the app finds the phrase that owns it. Works for other EVM networks too, since they share the same addresses. Ledger Live users: raise "Accounts to check" under Advanced search settings.
+- Typos in mixed-case Ethereum addresses are caught before the search starts.
+
+Also in this version, from v0.2.0:
+
+- **Check against your wallet address** (Bitcoin addresses starting with `1`, `3`, `bc1q` and `bc1p`). Free for one missing word.
+- **Fast searches** on every core of your computer, with a progress bar, time left and a Cancel button.
+- **Windows, macOS and Linux** installers.
 
 ## Which file do I download?
 

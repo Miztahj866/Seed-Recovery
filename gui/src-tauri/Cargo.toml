@@ -1,6 +1,6 @@
 [package]
 name = "seed-recovery-tool"
-version = "0.2.0"
+version = "0.3.0"
 description = "Local, offline BIP39 seed phrase recovery tool"
 edition = "2021"
 rust-version = "1.70"
@@ -26,6 +26,8 @@ base64 = "0.21"
 # Bitcoin key derivation and address handling (BIP32/44/49/84/86).
 # Wraps libsecp256k1, the elliptic-curve library used by Bitcoin Core.
 bitcoin = "0.32"
+# Keccak-256 for Ethereum addresses (RustCrypto, same family as sha2).
+sha3 = "0.10"
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]
