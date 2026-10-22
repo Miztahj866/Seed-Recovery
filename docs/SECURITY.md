@@ -60,7 +60,8 @@ Because this tool handles seed phrase fragments, the security bar is not just
   "partial memory safety" gap above applies to them.
 - ✅ **Key math comes from established libraries, not custom code.**
   Address checking uses the `bitcoin` crate (rust-bitcoin), which wraps
-  libsecp256k1, the elliptic-curve library used by Bitcoin Core. Exact
+  libsecp256k1, the elliptic-curve library used by Bitcoin Core, and
+  Ethereum's Keccak-256 hash comes from the RustCrypto `sha3` crate. Exact
   versions are pinned in `gui/src-tauri/Cargo.lock`. Its derivation is
   checked against the published BIP84 and BIP86 test vectors (see the
   tests in `gui/src-tauri/src/address.rs`).

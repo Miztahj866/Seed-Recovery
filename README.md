@@ -23,7 +23,7 @@ it anyway, and how to check the file first.
 - ✅ Fix typos (fuzzy-matches misspelled words against the official BIP39 wordlist)
 - ✅ Brute-force 1–3 missing/forgotten words (using the BIP39 checksum to prune invalid guesses)
 - ✅ Search word order when you know the set of words but not the sequence (a full 12-word phrase takes minutes; longer phrases can take days)
-- ✅ Check candidates against a Bitcoin address you know is yours (desktop app), so you get *your* phrase instead of a list of phrases that merely pass the checksum. Supports addresses starting with `1`, `3`, `bc1q` and `bc1p`.
+- ✅ Check candidates against a Bitcoin address you know is yours (desktop app), so you get *your* phrase instead of a list of phrases that merely pass the checksum. Supports Bitcoin addresses starting with `1`, `3`, `bc1q` and `bc1p`, and Ethereum (`0x…`) addresses, including Ledger Live accounts.
 
 ## What this CANNOT do
 
@@ -124,7 +124,7 @@ The **desktop app** (`gui/`) has two tiers:
 | Fix typos | ✅ | ✅ |
 | Find 1 missing word | ✅ | ✅ |
 | Word-order search | ✅ | ✅ |
-| Check against your Bitcoin address | ✅ | ✅ |
+| Check against your Bitcoin or Ethereum address | ✅ | ✅ |
 | Find 2+ missing words | — | ✅ |
 | Price | $0 | $25 one-time |
 

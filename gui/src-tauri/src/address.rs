@@ -8,7 +8,8 @@
 //!
 //! All the key math (BIP32 derivation, secp256k1, address encoding) comes
 //! from the `bitcoin` crate (rust-bitcoin), which wraps libsecp256k1, the
-//! elliptic-curve library used by Bitcoin Core. Nothing here is hand-rolled.
+//! elliptic-curve library used by Bitcoin Core; Ethereum's Keccak-256 comes
+//! from the RustCrypto `sha3` crate. Nothing here is hand-rolled.
 //!
 //! Supported address types, and the standard path each one implies:
 //!
@@ -18,24 +19,29 @@
 //! | `3`                 | Nested SegWit        | m/49'/0'/a'/c/i   |
 //! | `bc1q`              | Native SegWit        | m/84'/0'/a'/c/i   |
 //! | `bc1p`              | Taproot              | m/86'/0'/a'/c/i   |
+//! | `0x`                | Ethereum (and EVM)   | m/44'/60'/a'/0/i  |
 //!
 //! `a` = account, `c` = 0 for receiving or 1 for change, `i` = index.
+//! MetaMask and most wallets use account 0 and count up `i`; Ledger Live
+//! uses `i` = 0 and counts up the account, so the window covers both.
 //! Nothing here touches the network; it is pure computation.
 
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::bip32::{ChildNumber, Xpriv, Xpub};
 use bitcoin::secp256k1::{All, PublicKey, Secp256k1};
 use bitcoin::{Address, AddressType, CompressedPublicKey, Network, ScriptBuf};
+use sha3::{Digest, Keccak256};
 
 use crate::bip39;
 
-/// Which kind of Bitcoin address the user gave us.
+/// Which kind of address the user gave us.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     Legacy,
     NestedSegwit,
     NativeSegwit,
     Taproot,
+    Ethereum,
 }
 
 impl Kind {
@@ -46,7 +52,21 @@ impl Kind {
             Kind::NestedSegwit => 49,
             Kind::NativeSegwit => 84,
             Kind::Taproot => 86,
+            Kind::Ethereum => 44,
         }
+    }
+
+    /// The SLIP-44 coin type in the path: 0 for Bitcoin, 60 for Ethereum.
+    pub fn coin_type(self) -> u32 {
+        match self {
+            Kind::Ethereum => 60,
+            _ => 0,
+        }
+    }
+
+    /// Ethereum wallets don't use change addresses.
+    fn has_change(self) -> bool {
+        self != Kind::Ethereum
     }
 
     /// Plain-language name shown in the app.
@@ -56,17 +76,25 @@ impl Kind {
             Kind::NestedSegwit => "Bitcoin SegWit address (starts with 3)",
             Kind::NativeSegwit => "Bitcoin native SegWit address (starts with bc1q)",
             Kind::Taproot => "Bitcoin Taproot address (starts with bc1p)",
+            Kind::Ethereum => "Ethereum address (starts with 0x). Also works for other EVM networks",
         }
     }
 }
 
-/// The user's address, decoded once before the search starts.
+/// The user's address, decoded once before the search starts. Candidates
+/// are compared in this raw form, so nothing is re-encoded per candidate.
 #[derive(Debug, Clone)]
 pub struct Target {
     pub kind: Kind,
-    /// The address's output script. Comparing scripts instead of address
-    /// strings means nothing is re-encoded per candidate.
-    script: ScriptBuf,
+    expected: Expected,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Expected {
+    /// Bitcoin: the address's output script.
+    Script(ScriptBuf),
+    /// Ethereum: the 20-byte address.
+    Eth([u8; 20]),
 }
 
 /// Decode and classify the user's address, with a readable error if it
@@ -75,6 +103,9 @@ pub fn parse_address(input: &str) -> Result<Target, String> {
     let s = input.trim();
     if s.is_empty() {
         return Err("Enter an address first.".into());
+    }
+    if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+        return parse_eth_address(hex);
     }
     let unchecked = s.parse::<Address<NetworkUnchecked>>().map_err(|_| {
         "That doesn't look like a Bitcoin address. Check it for typos, or copy it again \
@@ -97,8 +128,61 @@ pub fn parse_address(input: &str) -> Result<Target, String> {
     };
     Ok(Target {
         kind,
-        script: addr.script_pubkey(),
+        expected: Expected::Script(addr.script_pubkey()),
     })
+}
+
+/// `hex` is the part after "0x". Checks the EIP-55 capitalisation
+/// checksum when the address uses mixed case, since a typo there is
+/// otherwise invisible.
+fn parse_eth_address(hex: &str) -> Result<Target, String> {
+    if hex.len() != 40 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("An Ethereum address is 0x followed by 40 characters (0-9 and a-f). \
+                    Check it for typos."
+            .into());
+    }
+    let mut bytes = [0u8; 20];
+    for (i, b) in bytes.iter_mut().enumerate() {
+        *b = u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).map_err(|_| "Invalid address".to_string())?;
+    }
+    let has_upper = hex.bytes().any(|b| b.is_ascii_uppercase());
+    let has_lower = hex.bytes().any(|b| b.is_ascii_lowercase());
+    if has_upper && has_lower && eip55(&bytes)[2..] != *hex {
+        return Err("The capital letters in this Ethereum address don't match its built-in \
+                    checksum, which usually means a typo. Copy it again from your wallet or a \
+                    block explorer."
+            .into());
+    }
+    Ok(Target {
+        kind: Kind::Ethereum,
+        expected: Expected::Eth(bytes),
+    })
+}
+
+/// The Ethereum address for a public key: the last 20 bytes of the
+/// Keccak-256 hash of the uncompressed key (without its 0x04 prefix).
+fn eth_address(pk: &PublicKey) -> [u8; 20] {
+    let uncompressed = pk.serialize_uncompressed();
+    let hash = Keccak256::digest(&uncompressed[1..]);
+    let mut out = [0u8; 20];
+    out.copy_from_slice(&hash[12..]);
+    out
+}
+
+/// EIP-55 mixed-case form of an address, e.g. 0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed.
+fn eip55(addr: &[u8; 20]) -> String {
+    let lower: String = addr.iter().map(|b| format!("{:02x}", b)).collect();
+    let hash = Keccak256::digest(lower.as_bytes());
+    let mut out = String::from("0x");
+    for (i, c) in lower.chars().enumerate() {
+        let nibble = (hash[i / 2] >> if i % 2 == 0 { 4 } else { 0 }) & 0x0f;
+        if c.is_ascii_alphabetic() && nibble >= 8 {
+            out.push(c.to_ascii_uppercase());
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 /// Which addresses to try for each candidate phrase.
@@ -159,13 +243,19 @@ impl Checker {
         // PBKDF2 with 2,048 rounds: by far the slowest step (~1 ms).
         let seed = bip39::mnemonic_to_seed(words, &self.passphrase);
         let master = Xpriv::new_master(Network::Bitcoin, &seed[..]).ok()?;
-        let purpose = self.target.kind.purpose();
-        let chains: &[u32] = if self.window.change { &[0, 1] } else { &[0] };
+        let kind = self.target.kind;
+        let purpose = kind.purpose();
+        let coin = kind.coin_type();
+        let chains: &[u32] = if self.window.change && kind.has_change() {
+            &[0, 1]
+        } else {
+            &[0]
+        };
 
         for account in 0..self.window.accounts {
             let path = [
                 ChildNumber::from_hardened_idx(purpose).ok()?,
-                ChildNumber::from_hardened_idx(0).ok()?,
+                ChildNumber::from_hardened_idx(coin).ok()?,
                 ChildNumber::from_hardened_idx(account).ok()?,
             ];
             let account_xpriv = master.derive_priv(&self.secp, &path).ok()?;
@@ -182,10 +272,10 @@ impl Checker {
                     let child = chain_xpub
                         .ckd_pub(&self.secp, ChildNumber::from_normal_idx(index).ok()?)
                         .ok()?;
-                    if self.script_for(&child.public_key) == self.target.script {
+                    if self.matches(&child.public_key) {
                         return Some(format!(
-                            "m/{}'/0'/{}'/{}/{}",
-                            purpose, account, chain, index
+                            "m/{}'/{}'/{}'/{}/{}",
+                            purpose, coin, account, chain, index
                         ));
                     }
                 }
@@ -194,8 +284,15 @@ impl Checker {
         None
     }
 
+    fn matches(&self, pk: &PublicKey) -> bool {
+        match &self.target.expected {
+            Expected::Script(script) => self.script_for(pk) == *script,
+            Expected::Eth(addr) => eth_address(pk) == *addr,
+        }
+    }
+
     /// The output script a wallet would use for this public key, for the
-    /// target's address type.
+    /// target's (Bitcoin) address type.
     fn script_for(&self, pk: &PublicKey) -> ScriptBuf {
         let cpk = CompressedPublicKey(*pk);
         match self.target.kind {
@@ -209,6 +306,7 @@ impl Checker {
                 let (xonly, _parity) = pk.x_only_public_key();
                 ScriptBuf::new_p2tr(&self.secp, xonly, None)
             }
+            Kind::Ethereum => ScriptBuf::new(), // not used: Ethereum compares addresses
         }
     }
 }
@@ -224,10 +322,10 @@ mod tests {
     const ABOUT: &str =
         "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
-    /// The address a wallet shows at m/purpose'/0'/account'/chain/index.
+    /// The address a wallet shows at m/purpose'/coin'/account'/chain/index.
     fn address_at(words: &[String], passphrase: &str, kind: Kind, account: u32, chain: u32, index: u32) -> String {
         let checker = Checker::new(
-            Target { kind, script: ScriptBuf::new() },
+            Target { kind, expected: Expected::Script(ScriptBuf::new()) },
             Window::default(),
             passphrase.into(),
         );
@@ -235,13 +333,16 @@ mod tests {
         let master = Xpriv::new_master(Network::Bitcoin, &seed[..]).unwrap();
         let path = [
             ChildNumber::from_hardened_idx(kind.purpose()).unwrap(),
-            ChildNumber::from_hardened_idx(0).unwrap(),
+            ChildNumber::from_hardened_idx(kind.coin_type()).unwrap(),
             ChildNumber::from_hardened_idx(account).unwrap(),
             ChildNumber::from_normal_idx(chain).unwrap(),
             ChildNumber::from_normal_idx(index).unwrap(),
         ];
         let key = master.derive_priv(&checker.secp, &path).unwrap();
         let pk = Xpub::from_priv(&checker.secp, &key).public_key;
+        if kind == Kind::Ethereum {
+            return eip55(&eth_address(&pk));
+        }
         let script = checker.script_for(&pk);
         Address::from_script(&script, Network::Bitcoin).unwrap().to_string()
     }
@@ -357,6 +458,98 @@ mod tests {
         let found = out.found.expect("should recover the missing word");
         assert_eq!(search::indices_to_words(&found.phrase), s(ABOUT));
         assert_eq!(found.path, "m/84'/0'/0'/0/0");
+    }
+
+    // --- Ethereum ---
+
+    #[test]
+    fn keccak256_reference_vector() {
+        // Keccak-256 of the empty string (as used by Ethereum, not SHA3-256).
+        let h = Keccak256::digest(b"");
+        let hex: String = h.iter().map(|b| format!("{:02x}", b)).collect();
+        assert_eq!(hex, "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470");
+    }
+
+    #[test]
+    fn eip55_reference_vectors() {
+        // From the EIP-55 specification.
+        for a in [
+            "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed",
+            "0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359",
+            "0xdbF03B407c01E7cD3CBea99509d93f8DDDC8C6FB",
+            "0xD1220A0cf47c7B9Be7A2E6BA89F429762e7b9aDb",
+        ] {
+            let t = parse_address(a).unwrap_or_else(|e| panic!("{a}: {e}"));
+            assert_eq!(t.kind, Kind::Ethereum);
+            match t.expected {
+                Expected::Eth(bytes) => assert_eq!(eip55(&bytes), a),
+                _ => panic!("not parsed as Ethereum"),
+            }
+        }
+    }
+
+    #[test]
+    fn eth_parse_accepts_lowercase_and_rejects_typos() {
+        assert!(parse_address("0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed").is_ok());
+        assert!(parse_address("0X5AAEB6053F3E94C9B9A09F33669435E7EF1BEAED").is_ok());
+        // One letter's case flipped: fails the EIP-55 checksum.
+        let e = parse_address("0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAEd").unwrap_err();
+        assert!(e.contains("checksum"), "{e}");
+        assert!(parse_address("0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeA").is_err()); // too short
+        assert!(parse_address("0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAeZ").is_err()); // not hex
+    }
+
+    #[test]
+    fn eth_reference_address() {
+        // The widely published first Ethereum address (m/44'/60'/0'/0/0) for
+        // the standard "abandon ... about" test phrase.
+        let w = s(ABOUT);
+        assert_eq!(address_at(&w, "", Kind::Ethereum, 0, 0, 0), "0x9858EfFD232B4033E47d90003D41EC34EcaEda94");
+    }
+
+    #[test]
+    fn checker_finds_metamask_and_ledger_live_style_addresses() {
+        let w = s(ABOUT);
+        let first = Checker::new(
+            parse_address("0x9858EfFD232B4033E47d90003D41EC34EcaEda94").unwrap(),
+            Window::default(),
+            String::new(),
+        );
+        assert_eq!(first.check(&w).as_deref(), Some("m/44'/60'/0'/0/0"));
+
+        // MetaMask style: account 0, a later index.
+        let metamask = address_at(&w, "", Kind::Ethereum, 0, 0, 6);
+        let c = Checker::new(parse_address(&metamask).unwrap(), Window::default(), String::new());
+        assert_eq!(c.check(&w).as_deref(), Some("m/44'/60'/0'/0/6"));
+
+        // Ledger Live style: index 0 of a later account; needs the accounts window.
+        let ledger = address_at(&w, "", Kind::Ethereum, 3, 0, 0);
+        let narrow = Checker::new(parse_address(&ledger).unwrap(), Window::default(), String::new());
+        assert_eq!(narrow.check(&w), None);
+        let wide = Window { accounts: 5, ..Window::default() };
+        let wide = Checker::new(parse_address(&ledger).unwrap(), wide, String::new());
+        assert_eq!(wide.check(&w).as_deref(), Some("m/44'/60'/3'/0/0"));
+    }
+
+    #[test]
+    fn end_to_end_missing_word_with_eth_address() {
+        use crate::search;
+        use std::sync::atomic::AtomicBool;
+        let mut w = s(ABOUT);
+        w[9] = "?".into();
+        let template = search::parse_template(&w).unwrap();
+        let checker = Checker::new(
+            parse_address("0x9858EfFD232B4033E47d90003D41EC34EcaEda94").unwrap(),
+            Window::default(),
+            String::new(),
+        );
+        let cancel = AtomicBool::new(false);
+        let out = search::search_missing_verified(&template, &cancel, |_| {}, |cand: &[u16]| {
+            checker.check(&search::indices_to_words(cand))
+        });
+        let found = out.found.expect("should recover the missing word");
+        assert_eq!(search::indices_to_words(&found.phrase), s(ABOUT));
+        assert_eq!(found.path, "m/44'/60'/0'/0/0");
     }
 
     /// Timing, not correctness: run with
